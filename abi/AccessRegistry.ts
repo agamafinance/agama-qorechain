@@ -12,6 +12,11 @@ export const AccessRegistryAbi = [
         "name": "complianceOfficer_",
         "type": "address",
         "internalType": "address"
+      },
+      {
+        "name": "hybridGuard_",
+        "type": "address",
+        "internalType": "contract IHolderEligibility"
       }
     ],
     "stateMutability": "nonpayable"
@@ -219,6 +224,19 @@ export const AccessRegistryAbi = [
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "hybridGuard",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "contract IHolderEligibility"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",

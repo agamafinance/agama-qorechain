@@ -11,7 +11,7 @@ export const AgUSDAbi = [
       {
         "name": "access_",
         "type": "address",
-        "internalType": "contract AccessRegistry"
+        "internalType": "contract IHolderEligibility"
       },
       {
         "name": "admin_",
@@ -133,7 +133,7 @@ export const AgUSDAbi = [
       {
         "name": "",
         "type": "address",
-        "internalType": "contract AccessRegistry"
+        "internalType": "contract IHolderEligibility"
       }
     ],
     "stateMutability": "view"

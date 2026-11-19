@@ -7,3 +7,5 @@ export { PqAttestedMessengerAbi } from './PqAttestedMessenger';
 export { MockUSDCAbi } from './MockUSDC';
 export { AbfAssetIssuerAbi } from './AbfAssetIssuer';
 export { AgamaL1ReceiverAbi } from './AgamaL1Receiver';
+export { FestUsdOnRampAbi } from './FestUsdOnRamp';
+export { AgamaComplianceModuleAbi } from './AgamaComplianceModule';
