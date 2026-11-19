@@ -13,7 +13,7 @@ import Link from 'next/link';
 import { Check, Download, KeyRound, Lock, ShieldCheck, Upload } from 'lucide-react';
 import type { Hex } from 'viem';
 import { toHex } from 'viem';
-import type { SealKeyPair } from '@qorechain/qoreseal';
+import type { SealKeyPair, SealRecipient } from '@qorechain/qoreseal';
 import { card, Hero, Panel, primaryBtn, secondaryBtn, Status } from '@/components/ui';
 import { TxButton } from '@/components/TxButton';
 import { qoreTx } from '@/lib/chains';
@@ -237,7 +237,7 @@ function ApplyStep({
   evm: Hex;
   ready: boolean;
   status: string;
-  officers?: { compliance: Uint8Array; auditor: Uint8Array };
+  officers?: { compliance: { recipient: SealRecipient }; auditor: { recipient: SealRecipient }; hybrid: boolean };
   officersError: Error | null;
   file: (envelope: Hex) => Promise<unknown>;
 }) {
@@ -320,7 +320,8 @@ function ApplyStep({
           {sealed && (
             <div className="mt-3 rounded-xl bg-[#254839] px-4 py-3 text-[12px] text-[#fdf8ed]">
               <div className="flex items-center gap-2 font-medium">
-                <Lock className="h-3.5 w-3.5" aria-hidden /> What the chain will see: {kb(sealed)} of ciphertext
+                <Lock className="h-3.5 w-3.5" aria-hidden /> What the chain will see: {kb(sealed)} of ciphertext,{' '}
+                {officers?.hybrid ? 'ML-KEM-1024 + X25519 hybrid, officer cards verified' : 'ML-KEM-1024'}
               </div>
               <div className="mt-1 break-all font-mono text-[11px] text-[#fdf8ed]/70">{sealed.slice(0, 180)}…</div>
             </div>
@@ -331,7 +332,7 @@ function ApplyStep({
                 type="button"
                 disabled={!ready || !complete || !officers}
                 className={primaryBtn}
-                onClick={() => setSealed(sealDossier(evm, [officers!.compliance, officers!.auditor], dossier))}
+                onClick={() => setSealed(sealDossier(evm, [officers!.compliance.recipient, officers!.auditor.recipient], dossier, officers!.hybrid))}
               >
                 {!ready ? 'Publish your key first' : !officers ? (officersError ? 'Officer keys unavailable' : 'Reading officer keys') : 'Seal it in this browser'}
               </button>

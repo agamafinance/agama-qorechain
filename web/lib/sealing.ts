@@ -6,7 +6,7 @@
  * browser: its seed is kept in this browser's storage and offered as a backup file. Only the ML-KEM-1024 public key
  * is published, on chain, by a transaction QoreX signs with the lender's ML-DSA-87 key.
  */
-import { generateSealKeys, open, seal, sealKeysFromSeed, type SealKeyPair } from '@qorechain/qoreseal';
+import { generateSealKeys, open, seal, sealKeysFromSeed, type SealKeyPair, type SealRecipient } from '@qorechain/qoreseal';
 import { bytesToHex, hexToBytes, type Hex } from 'viem';
 import { COSMOS_CHAIN_ID } from './chains';
 
@@ -54,14 +54,16 @@ export function backupFile(evm: string, keys: SealKeyPair) {
   return new Blob([body], { type: 'application/json' });
 }
 
-export function sealDossier(evm: string, recipients: Uint8Array[], dossier: unknown): Hex {
+/// Seals the dossier to the officers: hybrid (ML-KEM-1024 + X25519) when both cards verified, ML-KEM-1024 alone
+/// otherwise, chosen explicitly either way.
+export function sealDossier(evm: string, recipients: SealRecipient[], dossier: unknown, hybrid: boolean): Hex {
   return bytesToHex(
     seal({
       chainId: SEAL.chainId,
       purpose: SEAL.dossier,
-      mode: SEAL.mode,
+      mode: hybrid ? 'hybrid' : 'mlkem',
       aad: aadFor(evm),
-      recipients: recipients.map((mlkemPublicKey) => ({ mlkemPublicKey })),
+      recipients,
       plaintext: new TextEncoder().encode(JSON.stringify(dossier)),
     }),
   );
