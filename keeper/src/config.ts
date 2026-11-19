@@ -21,9 +21,9 @@ export const BOOK = { aprBps: 900, markEverySec: 600n };
 /// tick sees it; cash comes home once the buffer is under half the floor. Moves under a dollar wait.
 export const BUFFER = { minMove: 1_000_000n };
 
-/// The vault is marked to the book hourly: each mark carries a 4,627-byte ML-DSA-87 signature through pqcVerify,
-/// about 300k gas of QOR, and an hour of accrual moves the price by millionths.
-export const REPORT = { everySec: 3_600n };
+/// The vault is marked to the book every three hours: each mark carries a 4,627-byte ML-DSA-87 signature through
+/// pqcVerify, about 300k gas of QOR, and three hours of accrual move the price by millionths.
+export const REPORT = { everySec: 3n * 3_600n };
 
 export const STATE_FILE = resolve(import.meta.dirname, "../state.json");
 
