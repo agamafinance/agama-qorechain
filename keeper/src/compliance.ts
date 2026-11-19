@@ -15,6 +15,7 @@ import { Q, send } from "./config.js";
 import { artifact, pqAuthorize } from "./evm.js";
 import { qore } from "./net.js";
 import { aadFor, bytes, officer, SEAL } from "./sealing.js";
+import { dossierProvenance, type Provenance } from "./provenance.js";
 
 const AccessAbi = artifact("AccessRegistry").abi;
 
@@ -41,6 +42,8 @@ export type Letter = {
   dossierHash: Hex;
   reviewedAt: string;
   reviewer: string;
+  /** The filing transaction, both of its signatures verified by the officer with QoreSign. */
+  provenance?: Provenance;
 };
 
 const BLOCKED = new Set(["KP", "IR", "SY", "CU", "RU", "BY", "MM", "US"]);
@@ -84,6 +87,13 @@ export async function reviewDossiers(): Promise<number> {
   for (const a of waiting) {
     const envelope = (await qore.readContract({ address: Q.access, abi: AccessAbi, functionName: "dossier", args: [a] })) as Hex;
     const dossierHash = keccak256(envelope);
+    // Read nothing until the filing transaction is found and both its signatures check out. Not found yet means the
+    // node has not indexed it: the next tick tries again.
+    const provenance = await dossierProvenance(Q.access, a, dossierHash).catch(() => null);
+    if (!provenance) {
+      console.log(`  ${a}: filing transaction not indexed yet, next tick`);
+      continue;
+    }
     let dossier: Partial<Dossier> = {};
     try {
       const pt = open({ chainId: SEAL.chainId, purpose: SEAL.dossier, envelope: bytes(envelope), keys, aad: aadFor(a) });
@@ -91,7 +101,8 @@ export async function reviewDossiers(): Promise<number> {
     } catch (e) {
       console.log(`  dossier of ${a} does not open for compliance: ${(e as Error).message}`);
     }
-    const letter = decide(dossier, dossierHash);
+    const letter = { ...decide(provenance.classical && provenance.postQuantum ? dossier : {}, dossierHash), provenance };
+    if (!provenance.postQuantum) letter.reasons.unshift("The filing transaction's ML-DSA-87 signature did not verify.");
     const sealed = toHex(seal({
       chainId: SEAL.chainId, purpose: SEAL.letter, mode: SEAL.mode, aad: aadFor(a),
       recipients: [{ mlkemPublicKey: await lenderKey(a) }, auditor],
