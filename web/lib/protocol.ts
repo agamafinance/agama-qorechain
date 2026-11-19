@@ -21,7 +21,9 @@ import {
 import { ETHEREUM, QORECHAIN } from './deployments';
 import { fmt } from './format';
 import { useToasts } from '@/components/Toasts';
-import { l1, qore, REST } from './chains';
+import { COSMOS_CHAIN_ID, l1, qore, REST } from './chains';
+import { verifyRecipientCard, type RecipientCard, type SealRecipient } from '@qorechain/qoreseal';
+import cards from '../../deployments/recipient-cards.json';
 import { crossVmCall, registerKemKey, type EncodedMsg } from './proto';
 import { signAndBroadcast } from './qorex';
 import { useWallet } from './wallet';
@@ -487,20 +489,33 @@ export function useActions() {
   };
 }
 
-/// The officers' ML-KEM-1024 keys, from QoreChain's KEM registry: the dossier is sealed to exactly these.
+/// The officers as QoreSeal recipients. Each one's ML-KEM-1024 key comes from QoreChain's KEM registry, its ML-DSA-87
+/// key from the PQC registry, and its X25519 key from a recipient card it signed with QoreSign; the card is verified
+/// here against both on-chain keys before a single byte is sealed to it. A card that fails falls back to ML-KEM-1024
+/// alone, and says so.
 export function useOfficerKeys() {
   return useQuery({
     queryKey: ['officers'],
     staleTime: 5 * 60_000,
     queryFn: async () => {
-      const get = async (a: Address) => {
-        const r = await fetch(`${REST}/qorechain/pqc/v1/kem/${a}`);
-        const j = (await r.json()) as { found?: boolean; key?: { public_key: string } };
-        if (!j.found || !j.key) throw new Error(`No encryption key published by ${a}`);
-        return Uint8Array.from(atob(j.key.public_key), (c) => c.charCodeAt(0));
+      const b64 = (s: string) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+      const get = async (role: 'compliance' | 'auditor') => {
+        const card = (cards as Record<string, RecipientCard>)[role];
+        const [kem, pq] = await Promise.all([
+          fetch(`${REST}/qorechain/pqc/v1/kem/${card.address}`).then((r) => r.json()),
+          fetch(`${REST}/qorechain/pqc/v1/account/${card.address}`).then((r) => r.json()),
+        ]);
+        if (!kem.found) throw new Error(`The ${role} officer has no encryption key on chain`);
+        const mlkemPublicKey = b64(kem.key.public_key);
+        try {
+          const r = verifyRecipientCard({ card, chainId: COSMOS_CHAIN_ID, pqPublicKey: b64(pq.account.public_key), mlkemPublicKey });
+          return { recipient: r, hybrid: true };
+        } catch {
+          return { recipient: { mlkemPublicKey } as SealRecipient, hybrid: false };
+        }
       };
-      const [compliance, auditor] = await Promise.all([get(QORECHAIN.roles.compliance), get(QORECHAIN.roles.auditor)]);
-      return { compliance, auditor };
+      const [compliance, auditor] = await Promise.all([get('compliance'), get('auditor')]);
+      return { compliance, auditor, hybrid: compliance.hybrid && auditor.hybrid };
     },
   });
 }
