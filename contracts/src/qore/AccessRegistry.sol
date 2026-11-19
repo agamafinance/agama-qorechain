@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity ^0.8.28;
 
-import {PqcAuth} from "../pqc/PqcAuth.sol";
+import {IHolderEligibility} from "@qorechain/asset-kit/interfaces/IHolderEligibility.sol";
 import {PqcGoverned} from "../pqc/PqcGoverned.sol";
 
 /// @title AccessRegistry
@@ -18,8 +18,12 @@ import {PqcGoverned} from "../pqc/PqcGoverned.sol";
 ///        4. `isEligible` is what the vault reads: an approval that has not expired, held by an account that is
 ///           still quantum safe. Approvals, rejections and revocations exist only as signatures `pqcVerify` checked.
 ///
+///      "Quantum safe" is the Asset Kit's definition, not ours: QoreChain's `QoreChainHybridHolderGuard` reads the
+///      pqcKeyStatus precompile with a strict decoder and fails closed, and this registry is itself an Asset Kit
+///      `IHolderEligibility` policy, the interface its ERC-3643 module, CMTAT rule and vaults consume.
+///
 ///      What stays public, by design of QoreSeal: who applied, when, the size of the envelope and the outcome.
-contract AccessRegistry is PqcGoverned {
+contract AccessRegistry is PqcGoverned, IHolderEligibility {
     /// @notice FIPS 203 ML-KEM-1024 encapsulation key size.
     uint256 public constant MLKEM_1024_PUBLIC_KEY = 1568;
     /// @notice A dossier is a few hundred bytes of JSON sealed to a handful of readers; this bounds what one
@@ -49,6 +53,8 @@ contract AccessRegistry is PqcGoverned {
 
     /// @notice The compliance officer: decides on dossiers, with its ML-DSA-87 key only.
     address public complianceOfficer;
+    /// @notice The Asset Kit's hybrid-holder guard: a registered ML-DSA-87 key with proof of possession.
+    IHolderEligibility public immutable hybridGuard;
 
     mapping(address account => bytes) public encryptionKey;
     mapping(address account => bytes) public dossier;
@@ -73,8 +79,9 @@ contract AccessRegistry is PqcGoverned {
     error AlreadyExpired(uint64 expiresAt);
     error NotApproved(address account);
 
-    constructor(address admin_, address complianceOfficer_) PqcGoverned(admin_) {
-        if (complianceOfficer_ == address(0)) revert ZeroAddress();
+    constructor(address admin_, address complianceOfficer_, IHolderEligibility hybridGuard_) PqcGoverned(admin_) {
+        if (complianceOfficer_ == address(0) || address(hybridGuard_) == address(0)) revert ZeroAddress();
+        hybridGuard = hybridGuard_;
         complianceOfficer = complianceOfficer_;
         emit ComplianceOfficerChanged(address(0), complianceOfficer_);
     }
@@ -86,7 +93,7 @@ contract AccessRegistry is PqcGoverned {
     /// @notice Binds an ML-KEM-1024 key to the caller. Only an account with a proven ML-DSA-87 key may: the
     ///         encryption key then inherits the post-quantum authentication of every transaction that account sends.
     function publishEncryptionKey(bytes calldata mlkemPublicKey) external {
-        if (!PqcAuth.isQuantumSafe(msg.sender)) revert NotQuantumSafe(msg.sender);
+        if (!hybridGuard.isEligible(msg.sender)) revert NotQuantumSafe(msg.sender);
         if (mlkemPublicKey.length != MLKEM_1024_PUBLIC_KEY) revert BadEncryptionKey(mlkemPublicKey.length);
         encryptionKey[msg.sender] = mlkemPublicKey;
         emit EncryptionKeyPublished(msg.sender, keccak256(mlkemPublicKey));
@@ -95,7 +102,7 @@ contract AccessRegistry is PqcGoverned {
     /// @notice Files (or refiles) the caller's sealed dossier. The decision letter is sealed to the caller's
     ///         encryption key, so one must be published first.
     function fileDossier(bytes calldata envelope) external {
-        if (!PqcAuth.isQuantumSafe(msg.sender)) revert NotQuantumSafe(msg.sender);
+        if (!hybridGuard.isEligible(msg.sender)) revert NotQuantumSafe(msg.sender);
         if (encryptionKey[msg.sender].length == 0) revert NoEncryptionKey(msg.sender);
         if (envelope.length < 64 || envelope.length > MAX_ENVELOPE || bytes4(envelope[:4]) != QSEL) {
             revert BadEnvelope();
@@ -178,10 +185,10 @@ contract AccessRegistry is PqcGoverned {
     // Reads
     // ------------------------------------------------------------------
 
-    /// @notice May `account` hold agUSD right now.
-    function isEligible(address account) public view returns (bool) {
+    /// @notice May `account` hold agUSD right now: approved, not expired, and still a hybrid holder.
+    function isEligible(address account) public view override returns (bool) {
         Member storage m = members[account];
-        return m.status == Status.Approved && m.expiresAt > block.timestamp && PqcAuth.isQuantumSafe(account);
+        return m.status == Status.Approved && m.expiresAt > block.timestamp && hybridGuard.isEligible(account);
     }
 
     function applicantCount() external view returns (uint256) {

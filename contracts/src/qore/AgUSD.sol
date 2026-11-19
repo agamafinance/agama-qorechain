@@ -11,7 +11,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
 import {PqcGoverned} from "../pqc/PqcGoverned.sol";
-import {AccessRegistry} from "./AccessRegistry.sol";
+import {IHolderEligibility} from "@qorechain/asset-kit/interfaces/IHolderEligibility.sol";
 
 /// @title agUSD on QoreChain
 /// @notice Private credit yield for permissioned lenders. Deposit USDC, hold agUSD, and the yield of the
@@ -79,7 +79,8 @@ contract AgUSD is ERC4626, PqcGoverned, Pausable, ReentrancyGuard {
         bool paused;
     }
 
-    AccessRegistry public immutable access;
+    /// @notice Who may hold the share: an Asset Kit `IHolderEligibility` policy, Agama's AccessRegistry.
+    IHolderEligibility public immutable access;
 
     Config public config;
     /// @notice Signs NAV reports with its ML-DSA-87 key.
@@ -129,7 +130,7 @@ contract AgUSD is ERC4626, PqcGoverned, Pausable, ReentrancyGuard {
 
     constructor(
         IERC20 usdc,
-        AccessRegistry access_,
+        IHolderEligibility access_,
         address admin_,
         address reporter_,
         address guardian_,
