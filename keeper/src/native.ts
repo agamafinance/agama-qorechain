@@ -10,11 +10,12 @@ import type { EncodeObject } from "@cosmjs/proto-signing";
 import { EthNativeSigner, TxClient, directSignerFromPrivateKey, ensurePqcRegistered, qorechainRegistry } from "@qorechain/sdk";
 import { CHAIN_ID, REST, RPC, rest } from "./net.js";
 import { account, treasury, type Role } from "./accounts.js";
+import { ERC20_REGISTRY_TYPES } from "./erc20Msgs.js";
 
 export async function treasuryClient(index = 0) {
   const t = await treasury(index);
   const signer = await directSignerFromPrivateKey(t.native.privateKey, "qor");
-  const client = await TxClient.connect({ rpcEndpoint: RPC, signer, registry: qorechainRegistry(), pqcKeypair: t.pqc, rest: REST });
+  const client = await TxClient.connect({ rpcEndpoint: RPC, signer, registry: qorechainRegistry(ERC20_REGISTRY_TYPES as any), pqcKeypair: t.pqc, rest: REST });
   // Registers the account's canonical ML-DSA-87 key (the one QoreX derives from the same mnemonic) the first time.
   await ensurePqcRegistered(client, { pqcKeypair: t.pqc, rest: REST } as any);
   return { client, address: t.native.address };
