@@ -3,7 +3,7 @@
 import { encodeAbiParameters, type Abi } from "viem";
 import { BUFFER, E, Q, REPORT, send } from "./config.js";
 import { artifact, pqAuthorize } from "./evm.js";
-import { eth, qore } from "./net.js";
+import { eth, qore, sleep } from "./net.js";
 
 const AgUSDAbi = artifact("AgUSD").abi;
 const AllocatorAbi = artifact("CrossChainAllocator").abi;
@@ -21,17 +21,21 @@ const readE = <T>(address: `0x${string}`, abi: Abi, functionName: string, args: 
 
 export const snapshot = () => readQ<Snapshot>(Q.vault, AgUSDAbi, "snapshot");
 
-/// What the vault's deployed capital is worth: the L1 position plus whatever is still crossing in either
+/// What the vault's deployed capital is worth: the Ethereum position plus whatever is still crossing in either
 /// direction, because a burn that has not been minted yet is in flight, not lost.
+///
+/// Each chain is read at one block. Public endpoints are load balanced, and a `totalSent` served by a node one block
+/// behind the vault's `deployedAssets` once made an allocation look lost and marked the vault down 5%.
 export async function navOfBook() {
-  const [position, received, sentHome] = await Promise.all([
-    readE<bigint>(E.receiver, ReceiverAbi, "positionValue"),
-    readE<bigint>(E.receiver, ReceiverAbi, "totalReceived"),
-    readE<bigint>(E.receiver, ReceiverAbi, "totalSentHome"),
-  ]);
-  const [sent, returned] = await Promise.all([
-    readQ<bigint>(Q.allocator, AllocatorAbi, "totalSent"),
-    readQ<bigint>(Q.allocator, AllocatorAbi, "totalReturned"),
+  const [qBlock, eBlock] = await Promise.all([qore.getBlockNumber(), eth.getBlockNumber()]);
+  const atE = <T,>(fn: string) => eth.readContract({ address: E.receiver, abi: ReceiverAbi, functionName: fn, blockNumber: eBlock } as any) as Promise<T>;
+  const atQ = <T,>(fn: string) => qore.readContract({ address: Q.allocator, abi: AllocatorAbi, functionName: fn, blockNumber: qBlock } as any) as Promise<T>;
+  const [position, received, sentHome, sent, returned] = await Promise.all([
+    atE<bigint>("positionValue"),
+    atE<bigint>("totalReceived"),
+    atE<bigint>("totalSentHome"),
+    atQ<bigint>("totalSent"),
+    atQ<bigint>("totalReturned"),
   ]);
   return position + (sent - received) + (sentHome - returned);
 }
@@ -94,8 +98,10 @@ export async function shortfall() {
   return s.pending > idle ? s.pending - idle : 0n;
 }
 
+let lowSince: number | undefined;
+
 export async function report() {
-  const [s, cfg, nav] = await Promise.all([
+  const [s, cfg, navNow] = await Promise.all([
     snapshot(),
     readQ<readonly [bigint, number, number, number, number]>(Q.vault, AgUSDAbi, "config"),
     navOfBook(),
@@ -105,6 +111,23 @@ export async function report() {
   const every = BigInt(minReportInterval) > REPORT.everySec ? BigInt(minReportInterval) : REPORT.everySec;
   if (s.lastReport !== 0n && now < s.lastReport + every) return;
   if (s.deployed === 0n) return;
+  // A mark below the book is a loss to every holder, so it has to be seen twice, a minute apart, before it is
+  // reported: a real loss persists, a stale read does not.
+  let nav = navNow;
+  if (nav < s.deployed) {
+    await sleep(60_000);
+    const again = await navOfBook();
+    const fresh = await snapshot();
+    nav = again > nav ? again : nav;
+    if (nav < fresh.deployed && (fresh.deployed - nav) * 10_000n > fresh.deployed * 50n) {
+      // More than 0.5% down: report it only once it has persisted for a quarter of an hour.
+      lowSince ??= Date.now();
+      if (Date.now() - lowSince < 15 * 60_000) {
+        console.log(`  ::warning:: book reads ${nav} under the vault's ${fresh.deployed}; reported if it persists`);
+        return;
+      }
+    } else lowSince = undefined;
+  } else lowSince = undefined;
   // A move larger than the guard is walked there in steps rather than refused.
   const max = (s.deployed * BigInt(maxNavChangeBps)) / 10_000n;
   let next = nav;
