@@ -477,11 +477,15 @@ export function useActions() {
       send('Push the queue', 'Paid what the cash covers.', [call(QORECHAIN.vault, AgUSDAbi, 'settleRedemptions', [16n])], 900_000),
     /// Publishes the lender's ML-KEM-1024 key twice in one transaction: in QoreChain's KEM registry, where any
     /// QoreSeal client finds it, and in the AccessRegistry, which the compliance officer seals the letter to.
-    publishKey: (mlkemPublicKey: Uint8Array) =>
-      send('Publish your encryption key', 'Your ML-KEM-1024 key is on chain.', [
-        registerKemKey(account!.address, mlkemPublicKey),
+    publishKey: async (mlkemPublicKey: Uint8Array) => {
+      // QoreChain refuses to publish the same KEM key twice (pqc 253): the registry message goes only when needed.
+      const cur = await fetch(`${REST}/qorechain/pqc/v1/kem/${account!.address}`).then((r) => r.json()).catch(() => ({}));
+      const same = cur?.found && cur.key?.public_key === btoa(String.fromCharCode(...mlkemPublicKey));
+      return send('Publish your encryption key', 'Your ML-KEM-1024 key is on chain.', [
+        ...(same ? [] : [registerKemKey(account!.address, mlkemPublicKey)]),
         call(QORECHAIN.access, AccessRegistryAbi, 'publishEncryptionKey', [toHex(mlkemPublicKey)]),
-      ], 2_500_000),
+      ], 2_500_000);
+    },
     fileDossier: (envelope: Hex) =>
       send('File your sealed application', 'Filed. Compliance reviews it within a minute.', [
         call(QORECHAIN.access, AccessRegistryAbi, 'fileDossier', [envelope]),
