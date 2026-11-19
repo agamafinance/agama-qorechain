@@ -1,0 +1,31 @@
+[profile.default]
+src = "src"
+test = "test"
+script = "script"
+out = "out"
+libs = ["lib"]
+solc = "0.8.28"
+# QoreChain's EVM (cosmos/evm) and Ethereum Sepolia both run Cancun-or-later opcodes. Cancun keeps the bytecode
+# valid on both legs of the bridge.
+evm_version = "cancun"
+optimizer = true
+optimizer_runs = 2_000
+via_ir = true
+fs_permissions = [{ access = "read", path = "./" }]
+
+[lint]
+exclude_lints = ["screaming-snake-case-immutable", "unsafe-cheatcode", "asm-keccak256"]
+
+[fuzz]
+runs = 512
+
+[invariant]
+runs = 128
+depth = 64
+
+[rpc_endpoints]
+qorechain_diana = "https://evm-testnet.qore.host"
+sepolia = "https://ethereum-sepolia-rpc.publicnode.com"
+
+[fmt]
+line_length = 120
