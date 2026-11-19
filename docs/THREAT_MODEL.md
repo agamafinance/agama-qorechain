@@ -19,7 +19,7 @@ Agama on QoreChain is ever encrypted to a classical key alone, and why no key th
 | Auditor | ML-KEM-1024 view key | read every dossier, letter, epoch and tape | change anything |
 | Bridge attester | ML-DSA-87 towards QoreChain, secp256k1 towards Ethereum | mint on QoreChain only what Ethereum burned towards the allocator; mint on Ethereum only what QoreChain burned towards the receiver | mint on QoreChain with its secp256k1 key alone |
 | Operator | secp256k1 + ML-DSA-87, EVM window scoped to Agama's 6 contracts | start allocations (to the fixed receiver, above the reserve floor), relay messages and signed actions | choose where money goes, change anything, call any contract outside the scope |
-| Gas tank key | ed25519 authenticator on the treasury | send the treasury's QOR, 5 per payment, 15 a day, until expiry | anything else; the limits are the chain's, revocable by the treasury |
+| Gas tank key | ed25519 authenticator on the treasury | send the treasury's QOR, 5 per payment, 15 a day, until expiry | anything else; the limits are the chain's, revocable by the treasury. Ed25519 is classical: a quantum adversary could spend this allowance, and only it |
 | Guardian | secp256k1 (classical) | pause deposits and exits | anything that costs a holder; unpausing needs the admin's PQ signature |
 | Lender | QoreX: secp256k1 + ML-DSA-87 on every transaction, plus a QoreSeal key held in the browser | deposit, exit, transfer to other approved lenders, read its letter and the data room | hold agUSD unless approved and still a hybrid holder |
 
