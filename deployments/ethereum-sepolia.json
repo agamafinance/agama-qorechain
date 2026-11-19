@@ -1,12 +1,12 @@
 {
   "chainId": 11155111,
   "domain": 0,
-  "deployedAtBlock": 12171145,
+  "deployedAtBlock": 12171308,
   "custody": "0x0331E93335864e5df6fd8C26ac65B3A1Cad64c9a",
-  "usdc": "0x89db710cf83b6caa40acd94d4ac1e2e849c45ae7",
-  "messenger": "0x91136f93fbb4c93cc11ef8701c33ad838f3b3384",
-  "issuer": "0xd95294f62f481dba297ec7d29fbb554627ead86c",
-  "receiver": "0x7bba056a95f8d1288410848110a3d4a33fd1be40",
+  "usdc": "0x1c8669b4e26a642d83748984d19dd5149af8c42b",
+  "messenger": "0x7f8fa0b60361ac79024bf97a91f80ce2f662c17c",
+  "issuer": "0xc0f1d29f7778a663f3502afe9acb467d065d993f",
+  "receiver": "0xe1badae5cfeced419e96a5225570343da0a005c8",
   "wired": {
     "usdcMinterMessenger": true,
     "usdcMinterCustody": true,

@@ -3,9 +3,10 @@
  * it lands, and a rerun skips what is already there.
  *
  *   QoreChain (EVM 9800)                          Ethereum Sepolia
- *   MockUSDC, AccessRegistry, AgUSD,              MockUSDC, EcdsaAttestedMessenger,
- *   PqAttestedMessenger, CrossChainAllocator,     AbfAssetIssuer, AgamaL1Receiver
- *   DataRoom
+ *   MockUSDC, QoreChainHybridHolderGuard (Asset   MockUSDC, EcdsaAttestedMessenger,
+ *   Kit), AccessRegistry, AgUSD,                  AbfAssetIssuer, AgamaL1Receiver
+ *   PqAttestedMessenger, CrossChainAllocator,
+ *   DataRoom, AgamaComplianceModule, FestUsdOnRamp
  *
  * Contract creation needs the operator's EVM window open without a scope (`keys.ts window 600 40 unscoped`); the
  * keeper's own window is then scoped to the addresses deployed here (`keys.ts window`).
@@ -20,6 +21,8 @@ import { eth, qore } from "./net.js";
 
 export const DOMAIN = { ethereum: 0, qorechain: 9800 } as const;
 const b32 = (a: Address) => pad(a, { size: 32 });
+/** The fest's fUSD test token on qorechain-diana (6 decimals). */
+const FUSD = "0x97143B771D34ddb9130b807b135Ae675A5a963CA" as Address;
 
 const op = (await account("operator")).evm as Address;
 const reporter = (await account("reporter")).evm as Address;
@@ -49,7 +52,9 @@ q.deployedAtBlock ??= Number(await qore.getBlockNumber());
 saveQ();
 
 await once(q, "usdc", saveQ, () => deploy("qorechain", "operator", "MockUSDC", [op]));
-await once(q, "access", saveQ, () => deploy("qorechain", "operator", "AccessRegistry", [op, compliance]));
+// The Asset Kit's guard decides who is quantum safe; the registry builds the KYC decision on top of it.
+await once(q, "hybridGuard", saveQ, () => deploy("qorechain", "operator", "QoreChainHybridHolderGuard", [op]));
+await once(q, "access", saveQ, () => deploy("qorechain", "operator", "AccessRegistry", [op, compliance, q.hybridGuard]));
 await once(q, "vault", saveQ, () =>
   deploy("qorechain", "operator", "AgUSD", [
     q.usdc, q.access, op, reporter, op,
@@ -67,6 +72,9 @@ await once(q, "messenger", saveQ, () => deploy("qorechain", "operator", "PqAttes
 await once(q, "allocator", saveQ, () =>
   deploy("qorechain", "operator", "CrossChainAllocator", [q.vault, q.messenger, q.messenger, DOMAIN.ethereum, op, op]));
 await once(q, "dataRoom", saveQ, () => deploy("qorechain", "operator", "DataRoom", [q.access, op, compliance]));
+await once(q, "complianceModule", saveQ, () => deploy("qorechain", "operator", "AgamaComplianceModule", [q.access]));
+q.fusd = FUSD;
+await once(q, "fusdOnRamp", saveQ, () => deploy("qorechain", "operator", "FestUsdOnRamp", [FUSD, q.usdc]));
 
 // ---- Ethereum Sepolia ----
 e.chainId = 11155111;
@@ -95,6 +103,7 @@ const stepQ = (k: string, fn: () => Promise<unknown>) => once(q.wired, k, saveQ,
 const enc = (types: string[], values: unknown[]) => encodeAbiParameters(types.map((type) => ({ type })), values as any);
 
 await stepQ("usdcMinterMessenger", () => write("qorechain", "operator", q.usdc, usdcAbi, "grantRole", [MINTER, q.messenger]));
+await stepQ("usdcMinterOnRamp", () => write("qorechain", "operator", q.usdc, usdcAbi, "grantRole", [MINTER, q.fusdOnRamp]));
 const vaultAbi = artifact("AgUSD").abi;
 await stepQ("vaultRoles", () =>
   pqCall(q.vault, vaultAbi, "setRoles", "operator", "setRoles", enc(["address", "address", "address"], [reporter, op, q.allocator]), [reporter, op, q.allocator]));
