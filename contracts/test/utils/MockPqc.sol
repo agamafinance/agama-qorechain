@@ -13,7 +13,7 @@ contract MockPqc {
     mapping(address => Key) internal keys;
 
     function setKey(address account, bytes calldata pubkey, bool proven) external {
-        keys[account] = Key(pubkey, proven);
+        keys[account] = Key({pubkey: pubkey, proven: proven});
     }
 
     function pqcVerify(bytes calldata pubkey, bytes calldata signature, bytes calldata message)
