@@ -1,0 +1,27 @@
+{
+  "chainId": 9800,
+  "domain": 9800,
+  "roles": {
+    "operator": "0x0331E93335864e5df6fd8C26ac65B3A1Cad64c9a",
+    "admin": "0x0331E93335864e5df6fd8C26ac65B3A1Cad64c9a",
+    "reporter": "0x407529195cf5f4c1E18AbD46B8182FEfcf7AeD91",
+    "compliance": "0xF01f20C2B86310a368db8b54DAd43965617Bd7e6",
+    "attester": "0x529BE8c9F1619A263Be1609A2CC5f07A3329A807",
+    "guardian": "0x0331E93335864e5df6fd8C26ac65B3A1Cad64c9a",
+    "auditor": "0x13C9510D6a0D8db1A04265D587429d17D89D6858"
+  },
+  "deployedAtBlock": 10396129,
+  "usdc": "0xd95294f62f481dba297ec7d29fbb554627ead86c",
+  "access": "0x7bba056a95f8d1288410848110a3d4a33fd1be40",
+  "vault": "0x370376c493a7f078045794620b93a6cadb0f3380",
+  "messenger": "0x18684cf813ac8f8658832306ff705d132c29dbe5",
+  "allocator": "0xb6ca0b1fc18d03151e56d6c500b75d399c7062b7",
+  "dataRoom": "0x0d78cf13335ac24f3c1fa044ce59055ed7dd920d",
+  "wired": {
+    "usdcMinterMessenger": true,
+    "vaultRoles": true,
+    "vaultExemptFees": true,
+    "messengerRemote": true,
+    "allocatorReceiver": true
+  }
+}
