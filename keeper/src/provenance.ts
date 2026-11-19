@@ -36,21 +36,34 @@ export async function dossierProvenance(access: Address, account: Address, dossi
     });
     if (!hit) continue;
 
-    const raw = (await (await fetch(`${RPC}/tx?hash=0x${t.txhash}`, { headers: { "user-agent": "curl/8.7.1" } })).json()) as any;
-    const acc = await rest<any>(`/cosmos/auth/v1beta1/accounts/${signer}`);
-    const base = acc.account?.base_account ?? acc.account;
-    const pq = await rest<any>(`/qorechain/pqc/v1/account/${signer}`);
-    const info = t.tx.auth_info.signer_infos[0].public_key;
-    const res = verifyHybridTx({
-      txBytes: b64(raw.result.tx),
-      chainId: CHAIN_ID,
-      accountNumber: BigInt(base.account_number),
-      classicalPublicKey: b64(info.key),
-      classicalKeyType: String(info["@type"]).includes("ethsecp256k1") ? "eth_secp256k1" : "secp256k1",
-      pqPublicKey: b64(pq.account.public_key),
-      signBytesVersion: "either",
-    });
-    return { tx: t.txhash, signer, classical: res.classical, postQuantum: !!res.pq?.valid };
+    const res = await verifyTx(t.txhash, t.tx.auth_info.signer_infos[0].public_key, signer);
+    return { tx: t.txhash, signer, ...res };
   }
   return null;
+}
+
+/** Both signatures of a single-signer native transaction, verified with QoreSign against the chain's keys. */
+async function verifyTx(hash: string, info: { "@type": string; key: string }, signer: string) {
+  const raw = (await (await fetch(`${RPC}/tx?hash=0x${hash}`, { headers: { "user-agent": "curl/8.7.1" } })).json()) as any;
+  const acc = await rest<any>(`/cosmos/auth/v1beta1/accounts/${signer}`);
+  const base = acc.account?.base_account ?? acc.account;
+  const pq = await rest<any>(`/qorechain/pqc/v1/account/${signer}`);
+  const res = verifyHybridTx({
+    txBytes: b64(raw.result.tx),
+    chainId: CHAIN_ID,
+    accountNumber: BigInt(base.account_number),
+    classicalPublicKey: b64(info.key),
+    classicalKeyType: String(info["@type"]).includes("ethsecp256k1") ? "eth_secp256k1" : "secp256k1",
+    pqPublicKey: b64(pq.account.public_key),
+    signBytesVersion: "either",
+  });
+  return { classical: res.classical, postQuantum: !!res.pq?.valid };
+}
+
+/** Any transaction by hash: its signer and whether both its signatures verify. */
+export async function verifyTxByHash(hash: string): Promise<Provenance> {
+  const t = (await rest<any>(`/cosmos/tx/v1beta1/txs/${hash}`)).tx_response;
+  const info = t.tx.auth_info.signer_infos[0].public_key;
+  const signer = t.tx.body.messages[0].sender ?? t.tx.body.messages[0].from_address;
+  return { tx: hash, signer, ...(await verifyTx(hash, info, signer)) };
 }

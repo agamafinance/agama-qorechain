@@ -30,6 +30,7 @@ import { E, Q } from "./config.js";
 import { artifact } from "./evm.js";
 import { treasuryClient } from "./native.js";
 import { CONVERT_COIN_TYPE_URL } from "./erc20Msgs.js";
+import { verifyTxByHash } from "./provenance.js";
 import { eth, qore, REST, sleep } from "./net.js";
 import { aadFor, officer, SEAL } from "./sealing.js";
 import { reviewDossiers, type Letter } from "./compliance.js";
@@ -59,13 +60,18 @@ const { client, address: lender } = await treasuryClient();
 const twin = `0x${Buffer.from(fromBech32(lender, 90).data).toString("hex")}` as Address;
 console.log(`lender ${lender} (EVM twin ${twin})\n`);
 
+const hybridTxs: boolean[] = [];
+
 /** One hybrid-signed native transaction carrying cross-VM calls (and any native message). */
 async function native(label: string, msgs: any[], gas: number) {
   const res: any = await client.signAndBroadcast(msgs, { amount: [{ denom: "uqor", amount: String(Math.ceil(gas * 0.125)) }], gas: String(gas) }, `agama e2e: ${label}`);
   if (res.code) throw new Error(`${label} failed: ${res.rawLog}`);
-  const tx: any = await (await fetch(`${REST}/cosmos/tx/v1beta1/txs/${res.transactionHash}`, { headers: { "user-agent": "curl/8.7.1" } })).json().catch(() => ({}));
-  const hybrid = JSON.stringify(tx?.tx_response?.events ?? []).includes("pqc_hybrid_verify");
-  console.log(`  ${label.padEnd(28)} ${res.transactionHash}  gas ${res.gasUsed}${hybrid ? "  hybrid-verified" : ""}`);
+  // A second opinion on every lender transaction: both signatures re-verified with QoreSign against the chain's keys.
+  await sleep(1_500);
+  const v = await verifyTxByHash(res.transactionHash).catch(() => ({ classical: false, postQuantum: false }));
+  const hybrid = v.classical && v.postQuantum;
+  console.log(`  ${label.padEnd(28)} ${res.transactionHash}  gas ${res.gasUsed}  ${hybrid ? "secp256k1 + ML-DSA-87 verified (QoreSign)" : "NOT verified"}`);
+  hybridTxs.push(hybrid);
   return { hash: res.transactionHash as string, hybrid };
 }
 const call = (target: Address, abi: any, functionName: string, args: unknown[]) => ({
@@ -239,6 +245,8 @@ await settleQueue();
 await sleep(3_000);
 const paid = (await read<bigint>(Q.usdc, Usdc, "balanceOf", [twin])) - usdcBefore;
 check("queue paid the lender in full", paid >= owed, `${usd(paid)}`);
+
+check("every lender transaction: secp256k1 and ML-DSA-87 both verify (QoreSign)", hybridTxs.length > 0 && hybridTxs.every(Boolean), `${hybridTxs.length} transactions`);
 
 const failed = results.filter((r) => !r[1]);
 console.log(`\n${results.length - failed.length}/${results.length} checks passed`);

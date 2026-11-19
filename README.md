@@ -57,7 +57,7 @@ Category: **Encrypted Apps**.
 
 | Action | Protected by | Checked by |
 |---|---|---|
-| Every lender transaction (key, dossier, deposit, exit, fUSD swap) | QoreX hybrid signature, secp256k1 + ML-DSA-87 | the chain's ante handler; again by the officer with QoreSign `verifyHybridTx`; again in e2e with the `qore` CLI |
+| Every lender transaction (key, dossier, deposit, exit, fUSD swap) | QoreX hybrid signature, secp256k1 + ML-DSA-87 | the chain's ante handler; again off chain with QoreSign `verifyHybridTx` (by the officer for every dossier, by the e2e for every lender transaction) |
 | Lender's encryption key | ML-KEM-1024 key in QoreChain's **KEM registry** and the AccessRegistry | AccessRegistry refuses accounts the Asset Kit guard does not see as hybrid holders |
 | KYC dossier | QoreSeal envelope, hybrid ML-KEM-1024 + X25519, to the officers' registered keys, their QoreSign recipient cards verified | only the compliance officer and the auditor can open it |
 | Compliance decision | officer's ML-DSA-87 signature over the exact dossier hash | `pqcVerify` (0x0a01) against `pqcKeyStatus` (0x0a02) |
@@ -78,13 +78,12 @@ chain holds for that role, so a mismatched key fails for free instead of as a re
 
 **Kits:** QoreChain SDK (TypeScript), QoreSeal (TypeScript), QoreSign (TypeScript), qorechain-pqc (TypeScript),
 QoreX integrations (`@qorechain/qorex-types`, `@qorechain/qorex-wallet-mock`), Asset Kit (Solidity:
-`QoreChainHybridHolderGuard`, `IHolderEligibility`, `IERC3643ComplianceModule`), MCP + qore CLI (`@qorechain/qore-cli`),
-QoreScan (CBOM, DORA mapping, agility template in `docs/cbom`).
+`QoreChainHybridHolderGuard`, `IHolderEligibility`, `IERC3643ComplianceModule`), QoreScan (CBOM, DORA mapping, agility template in `docs/cbom`).
 
 **Network functions:** ML-DSA-87 hybrid transactions; PQC key registration with proof of possession; EVM window,
 scoped; PQC signature verification in Solidity (`pqcVerify`); PQC key status in Solidity (`pqcKeyStatus`); QoreSeal
 and the encryption key registry (`MsgRegisterKEMKey`); Fest test tokens (fUSD, via `MsgConvertCoin` and the
-`FestUsdOnRamp`); cross-VM calls (native to EVM, `MsgCrossVMCall`); Asset Kit; QoreScan; qore CLI.
+`FestUsdOnRamp`); cross-VM calls (native to EVM, `MsgCrossVMCall`); Asset Kit; QoreScan.
 
 ## Contracts
 
@@ -178,7 +177,7 @@ Written during the fest. Reused, with credit:
 codec, the Ethereum leg, the web app's look) and
 an earlier QoreChain build (same team, MIT: `PqcAuth`, the mock
 precompiles, the hand-encoded protobuf, the QoreX provider and the fest-token conversions). QoreChain's kits:
-QoreChain SDK, QoreSeal, QoreSign, qorechain-pqc, QoreX integrations, Asset Kit (Apache-2.0), qore CLI, QoreScan.
+QoreChain SDK, QoreSeal, QoreSign, qorechain-pqc, QoreX integrations, Asset Kit (Apache-2.0), QoreScan.
 OpenZeppelin Contracts 5.4, forge-std, viem, Next.js.
 
 Licence: Apache-2.0.
