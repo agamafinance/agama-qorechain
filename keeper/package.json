@@ -1,0 +1,29 @@
+{
+  "name": "agama-qorechain-keeper",
+  "private": true,
+  "type": "module",
+  "description": "Agama on QoreChain: accounts, keys, deployment, and the keeper (bridge relay, vault, compliance, data room)",
+  "scripts": {
+    "typecheck": "tsc -p .",
+    "status": "tsx src/cli.ts status",
+    "tick": "tsx src/cli.ts tick",
+    "loop": "tsx src/cli.ts loop",
+    "keys": "tsx src/keys.ts",
+    "fund": "tsx src/fund.ts",
+    "deploy": "tsx src/deploy.ts",
+    "e2e": "tsx src/e2e.ts"
+  },
+  "dependencies": {
+    "@cosmjs/proto-signing": "^0.39.0",
+    "@cosmjs/stargate": "^0.39.0",
+    "@qorechain/evm": "^0.14.0",
+    "@qorechain/qoreseal": "^0.1.0",
+    "@qorechain/sdk": "^0.14.0",
+    "viem": "2.57.17"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.0"
+  }
+}
