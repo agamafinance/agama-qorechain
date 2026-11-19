@@ -20,7 +20,7 @@ no key a quantum computer could break can move the money.**
 Built for **Build Before Q-Day**, the QoreChain Developer Fest, on `qorechain-diana`, during the fest.
 Category: **Encrypted Apps**.
 
-> Live on the QoreChain and Ethereum Sepolia testnets. Tests: 170 Foundry, 23 on-chain e2e checks, 9 browser e2e
+> Live on the QoreChain and Ethereum Sepolia testnets. Tests: 170 Foundry, 27 on-chain e2e checks, 9 browser e2e
 > checks with the official QoreX test double.
 
 ## What happens to a lender
@@ -69,6 +69,7 @@ Category: **Encrypted Apps**.
 | Money coming home from Ethereum | attester's ML-DSA-87 signature over the CCTP message | `pqcVerify` in `PqAttestedMessenger` |
 | Every admin power (config, roles, receivers, attester, officer, manager) | admin's ML-DSA-87 signature | `pqcVerify`; no function checks `msg.sender` for admin powers |
 | Keeper's own EVM transactions | EVM window **scoped** to Agama's six contracts | the chain's EVM lane admission |
+| Keeper's gas | an ed25519 **authenticator** linked to the treasury: `send` QOR only, 5 per payment, 15 a day, 29 days | the chain's spending rule (`abstractaccount`); the treasury's keys never reach the keeper |
 | Pause | guardian (classical key) | can only stop new money; never costs a holder anything |
 
 Every ML-DSA-87 signature the keeper produces is first verified locally with **qorechain-pqc** against the key the
@@ -83,7 +84,8 @@ QoreX integrations (`@qorechain/qorex-types`, `@qorechain/qorex-wallet-mock`), A
 **Network functions:** ML-DSA-87 hybrid transactions; PQC key registration with proof of possession; EVM window,
 scoped; PQC signature verification in Solidity (`pqcVerify`); PQC key status in Solidity (`pqcKeyStatus`); QoreSeal
 and the encryption key registry (`MsgRegisterKEMKey`); Fest test tokens (fUSD, via `MsgConvertCoin` and the
-`FestUsdOnRamp`); cross-VM calls (native to EVM, `MsgCrossVMCall`); Asset Kit; QoreScan.
+`FestUsdOnRamp`); cross-VM calls (native to EVM, `MsgCrossVMCall`); smart accounts and spending rules (the keeper's gas tank); Asset
+Kit; QoreScan.
 
 ## Contracts
 
@@ -158,7 +160,8 @@ npx tsx src/cards.ts                          # QoreSign-signed recipient cards
 npx tsx src/keys.ts window 1200 80 unscoped && (cd ../contracts && forge build) && npx tsx src/deploy.ts
 npx tsx src/keys.ts window                    # the keeper's window, scoped to Agama's contracts
 npx tsx src/cli.ts loop 345                   # relay, book, rebalance, NAV, queue, compliance, data room
-npx tsx src/e2e.ts                            # on-chain end to end (23 checks)
+npx tsx src/gastank.ts link                   # the treasury links the keeper's gas tank (spending rule)
+npx tsx src/e2e.ts                            # on-chain end to end (27 checks)
 (cd ../web && node e2e/browser.mjs)           # browser end to end with the QoreX test double (9 checks)
 ```
 

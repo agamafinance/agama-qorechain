@@ -2,7 +2,7 @@
 
 Both suites run against the live testnets, with the keeper running as it does in production.
 
-## On chain (`keeper/src/e2e.ts`, 25 checks)
+## On chain (`keeper/src/e2e.ts`, 27 checks)
 
 A lender that is a QoreX-style account (coin 118, canonical ML-DSA-87 key registered) does everything through
 hybrid-signed native transactions and MsgCrossVMCall, exactly as QoreX does:
@@ -19,7 +19,8 @@ hybrid-signed native transactions and MsgCrossVMCall, exactly as QoreX does:
 7. the data room's epoch includes the lender; it decrypts the loan tape, whose ciphertext matches its on-chain
    commitment; the auditor opens the same epoch; a stranger's key does not
 8. a queued exit larger than the buffer is paid in full from collections burned home under an ML-DSA-87 attestation
-9. every lender transaction is re-verified with QoreSign: secp256k1 and ML-DSA-87
+9. the keeper's gas tank pays the operator inside its spending rule, and the chain refuses a payment over it
+10. every lender transaction is re-verified with QoreSign: secp256k1 and ML-DSA-87
 
 Last run, 19 November 2026: **25/25**.
 
