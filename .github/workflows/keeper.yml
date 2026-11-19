@@ -1,0 +1,50 @@
+# The keeper on a clock: relay both ways, run the simulated issuer's book, rebalance the buffer, mark the vault with
+# ML-DSA-87 signed reports, settle the queue, review sealed dossiers, keep the data room's epoch current.
+#
+# GitHub starts scheduled runs late and irregularly, so a run does not tick once: it loops for just under six hours
+# and the hourly schedule only has to queue the next one. The concurrency group keeps exactly one keeper sending.
+# Testnet mnemonic only, held as a repository secret.
+name: keeper
+
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: keeper
+  cancel-in-progress: false
+
+jobs:
+  loop:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    defaults:
+      run:
+        working-directory: keeper
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - uses: foundry-rs/foundry-toolchain@v1
+      - run: forge build
+        working-directory: contracts
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: keeper/package-lock.json
+      - uses: actions/cache/restore@v4
+        with:
+          path: keeper/state.json
+          key: keeper-state-${{ github.run_id }}
+          restore-keys: keeper-state-
+      - run: npm ci
+      - run: npx tsx src/cli.ts loop 345
+        env:
+          QORE_MNEMONIC: ${{ secrets.QORE_MNEMONIC }}
+      - uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: keeper/state.json
+          key: keeper-state-${{ github.run_id }}
