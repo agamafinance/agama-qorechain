@@ -42,7 +42,13 @@ export async function send(
   let hash: Hex | undefined;
   for (let attempt = 0; !hash; attempt++) {
     try {
-      const { request } = await pub.simulateContract({ address, abi, functionName, args, account: w.account!, ...(opts.gas ? { gas: opts.gas } : {}) } as any);
+      // QoreChain charges the whole gas limit, not the gas used, so the limit is the estimate plus a quarter, never a
+      // round ceiling. `opts.gas` is only the fallback when a node cannot estimate.
+      const est = await pub
+        .estimateContractGas({ address, abi, functionName, args, account: w.account! } as any)
+        .then((g) => (g * 125n) / 100n)
+        .catch(() => opts.gas);
+      const { request } = await pub.simulateContract({ address, abi, functionName, args, account: w.account!, ...(est ? { gas: est } : {}) } as any);
       hash = await w.writeContract(request as any);
     } catch (e) {
       const reverted = e instanceof BaseError && e.walk((c) => c instanceof ContractFunctionRevertedError);
