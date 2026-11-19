@@ -31,6 +31,7 @@ import { artifact } from "./evm.js";
 import { treasuryClient } from "./native.js";
 import { CONVERT_COIN_TYPE_URL } from "./erc20Msgs.js";
 import { verifyTxByHash } from "./provenance.js";
+import { refuel, TANK } from "./gastank.js";
 import { eth, qore, REST, sleep } from "./net.js";
 import { aadFor, officer, SEAL } from "./sealing.js";
 import { reviewDossiers, type Letter } from "./compliance.js";
@@ -253,6 +254,13 @@ await settleQueue();
 await sleep(3_000);
 const paid = (await read<bigint>(Q.usdc, Usdc, "balanceOf", [twin])) - usdcBefore;
 check("queue paid the lender in full", paid >= owed, `${usd(paid)}`);
+
+// ---- 8. the keeper's gas tank: a spending rule the chain enforces, not the keeper's code ----
+console.log("\n8. gas tank");
+const paidOk = await refuel(1).then(() => true).catch(() => false);
+check("gas tank pays the operator 1 QOR from the treasury, inside the rule", paidOk);
+const refusedMsg = await refuel(TANK.perTxQor + 1).then(() => "").catch((e) => String((e as Error).message));
+check("the chain refuses a payment over the per-payment limit", /limit/.test(refusedMsg), refusedMsg.replace("refused by the chain: ", "").slice(0, 70));
 
 check("every lender transaction: secp256k1 and ML-DSA-87 both verify (QoreSign)", hybridTxs.length > 0 && hybridTxs.every(Boolean), `${hybridTxs.length} transactions`);
 
