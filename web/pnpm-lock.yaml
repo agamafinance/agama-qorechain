@@ -11,6 +11,9 @@ importers:
       '@qorechain/qoreseal':
         specifier: 0.1.0
         version: 0.1.0
+      '@qorechain/qorex-types':
+        specifier: 0.1.0
+        version: 0.1.0
       '@tanstack/react-query':
         specifier: 5.100.9
         version: 5.100.9(react@19.3.1)

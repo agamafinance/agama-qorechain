@@ -450,7 +450,7 @@ export function useActions() {
     try {
       const res = await signAndBroadcast(msgs, `agama: ${title.toLowerCase()}`, gas);
       toast.hash(id, res.txHash);
-      toast.done(id, done);
+      toast.done(id, res.shield === 'shielded' ? `${done} Shielded: ML-DSA-87 layer confirmed in the block.` : done);
       // The next block carries the new state; refetch a moment later too, for a node that is a block behind.
       await qc.invalidateQueries();
       setTimeout(() => void qc.invalidateQueries(), 2_500);
