@@ -1,0 +1,29 @@
+import { NextResponse, type NextRequest } from 'next/server';
+
+/**
+ * Read-only proxy to QoreChain's REST API, whose public endpoint sends no CORS headers. Only the few GET routes the
+ * app reads are forwarded.
+ */
+const UPSTREAM = process.env.QORE_REST_UPSTREAM ?? 'https://api-testnet.qore.host';
+const QOR = 'qor1[02-9ac-hj-np-z]{38}';
+const ALLOWED = [
+  new RegExp(`^cosmos/bank/v1beta1/balances/${QOR}$`),
+  new RegExp(`^cosmos/auth/v1beta1/accounts/${QOR}$`),
+  /^cosmos\/tx\/v1beta1\/txs\/[0-9A-Fa-f]{64}$/,
+  new RegExp(`^qorechain/pqc/v1/account/${QOR}$`),
+  new RegExp(`^qorechain/pqc/v1/kem/(${QOR}|0x[0-9a-fA-F]{40})$`),
+  new RegExp(`^qorechain/pqc/v1/evm_window/${QOR}$`),
+];
+
+export async function GET(_req: NextRequest, { params }: { params: Promise<{ path: string[] }> }) {
+  const path = (await params).path.join('/');
+  if (!ALLOWED.some((re) => re.test(path))) return NextResponse.json({ error: 'not allowed' }, { status: 404 });
+  const res = await fetch(`${UPSTREAM}/${path}`, {
+    headers: { accept: 'application/json', 'user-agent': 'agama-qorechain/1.0' },
+    cache: 'no-store',
+  });
+  return new NextResponse(await res.text(), {
+    status: res.status,
+    headers: { 'content-type': 'application/json', 'cache-control': 'no-store' },
+  });
+}
