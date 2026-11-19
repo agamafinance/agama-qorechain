@@ -27,3 +27,15 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ pat
     headers: { 'content-type': 'application/json', 'cache-control': 'no-store' },
   });
 }
+
+/** Broadcast and simulate, for in-page signers (the QoreX test double in e2e/). The real QoreX broadcasts itself. */
+const POST_ALLOWED = [/^cosmos\/tx\/v1beta1\/txs$/, /^cosmos\/tx\/v1beta1\/simulate$/];
+
+export async function POST(req: NextRequest, { params }: { params: Promise<{ path: string[] }> }) {
+  const path = (await params).path.join('/');
+  if (!POST_ALLOWED.some((re) => re.test(path))) return NextResponse.json({ error: 'not allowed' }, { status: 404 });
+  const body = await req.text();
+  if (body.length > 200_000) return NextResponse.json({ error: 'too large' }, { status: 413 });
+  const res = await fetch(`${UPSTREAM}/${path}`, { method: 'POST', body, headers: { 'content-type': 'application/json' } });
+  return new NextResponse(await res.text(), { status: res.status, headers: { 'content-type': 'application/json' } });
+}
