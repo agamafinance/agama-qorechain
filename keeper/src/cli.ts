@@ -9,6 +9,7 @@ import { inbound, navOfBook, rebalance, refill, report, settleQueue, shortfall, 
 import { reviewDossiers } from "./compliance.js";
 import { publishTape } from "./dataroom.js";
 import { ensureWindow } from "./window.js";
+import { ensureGas } from "./gastank.js";
 
 const usd = (v: bigint) => `$${Number(formatUnits(v, 6)).toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
 
@@ -35,6 +36,8 @@ ABF issuer on Ethereum Sepolia
 }
 
 async function tick() {
+  // Gas first: the treasury's authenticator tops the operator up within the chain's daily limit.
+  await ensureGas().catch((e) => console.log(`  ::warning:: gas tank: ${(e as Error).message.split("\n")[0]}`));
   await ensureWindow();
   console.log("relay");
   await relayAll();
