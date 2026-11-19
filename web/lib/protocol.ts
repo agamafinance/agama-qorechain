@@ -16,6 +16,7 @@ import {
   AgUSDAbi,
   CrossChainAllocatorAbi,
   DataRoomAbi,
+  FestUsdOnRampAbi,
   MockUSDCAbi,
 } from '@abi';
 import { ETHEREUM, QORECHAIN } from './deployments';
@@ -24,7 +25,7 @@ import { useToasts } from '@/components/Toasts';
 import { COSMOS_CHAIN_ID, l1, qore, REST } from './chains';
 import { verifyRecipientCard, type RecipientCard, type SealRecipient } from '@qorechain/qoreseal';
 import cards from '../../deployments/recipient-cards.json';
-import { crossVmCall, registerKemKey, type EncodedMsg } from './proto';
+import { convertCoin, crossVmCall, registerKemKey, type EncodedMsg } from './proto';
 import { signAndBroadcast } from './qorex';
 import { useWallet } from './wallet';
 
@@ -115,11 +116,12 @@ export type Member = {
   dossierHash: Hex;
 };
 
-async function qorBalance(address: string): Promise<bigint> {
+async function bank(address: string): Promise<{ qor: bigint; fusd: bigint }> {
   const r = await fetch(`${REST}/cosmos/bank/v1beta1/balances/${address}`);
-  if (!r.ok) return 0n;
+  if (!r.ok) return { qor: 0n, fusd: 0n };
   const b = (await r.json()) as { balances?: { denom: string; amount: string }[] };
-  return BigInt(b.balances?.find((x) => x.denom === 'uqor')?.amount ?? '0');
+  const of = (d: string) => BigInt(b.balances?.find((x) => x.denom === d)?.amount ?? '0');
+  return { qor: of('uqor'), fusd: of(`erc20:${QORECHAIN.fusd}`) };
 }
 
 /// The connected lender: balances, permission and the keys it has published.
@@ -131,7 +133,7 @@ export function useUser() {
     enabled: !!account,
     refetchInterval: REFRESH,
     queryFn: async () => {
-      const [usdc, agusd, allowance, maxWithdraw, maxRedeem, eligible, m, key, qor] = await Promise.all([
+      const [usdc, agusd, allowance, maxWithdraw, maxRedeem, eligible, m, key, b, fusdErc20] = await Promise.all([
         read<bigint>(QORECHAIN.usdc, MockUSDCAbi, 'balanceOf', [a]),
         read<bigint>(QORECHAIN.vault, AgUSDAbi, 'balanceOf', [a]),
         read<bigint>(QORECHAIN.usdc, MockUSDCAbi, 'allowance', [a, QORECHAIN.vault]),
@@ -140,8 +142,12 @@ export function useUser() {
         read<boolean>(QORECHAIN.access, AccessRegistryAbi, 'isEligible', [a]),
         read<readonly [number, number, bigint, bigint, bigint, bigint, Hex]>(QORECHAIN.access, AccessRegistryAbi, 'members', [a]),
         read<Hex>(QORECHAIN.access, AccessRegistryAbi, 'encryptionKey', [a]),
-        qorBalance(account!.address),
+        bank(account!.address),
+        read<bigint>(QORECHAIN.fusd, MockUSDCAbi, 'balanceOf', [a]),
       ]);
+      const qor = b.qor;
+      // fUSD as the faucet pays it (bank form) plus any already converted to ERC-20 on the 0x twin.
+      const fusd = b.fusd + fusdErc20;
       const member: Member = {
         status: STATUS[m[0]] ?? 'None',
         tier: m[1],
@@ -151,7 +157,7 @@ export function useUser() {
         decidedBlock: m[5],
         dossierHash: m[6],
       };
-      return { usdc, agusd, allowance, maxWithdraw, maxRedeem, eligible, member, encryptionKey: key, qor };
+      return { usdc, agusd, allowance, maxWithdraw, maxRedeem, eligible, member, encryptionKey: key, qor, fusd, fusdBank: b.fusd, fusdErc20 };
     },
   });
   return { ...q, ...(q.data ?? {}), address: account?.evm, account };
@@ -458,6 +464,14 @@ export function useActions() {
     crossVmCall(account!.address, target, encodeFunctionData({ abi, functionName, args }));
 
   return {
+    /// The fest's fUSD into the route's dollar, one signature: convert what is still in bank form, approve, swap.
+    rampFusd: (amount: bigint, bankPart: bigint) => {
+      const msgs: EncodedMsg[] = [];
+      if (bankPart > 0n) msgs.push(convertCoin(account!.address, account!.evm, `erc20:${QORECHAIN.fusd}`, bankPart));
+      msgs.push(call(QORECHAIN.fusd, MockUSDCAbi, 'approve', [QORECHAIN.fusdOnRamp, amount]));
+      msgs.push(call(QORECHAIN.fusdOnRamp, FestUsdOnRampAbi, 'onRamp', [amount]));
+      return send(`Swap ${fmt(amount)} fUSD`, `${fmt(amount)} USDC from your fest fUSD.`, msgs, 1_200_000 + 300_000 * (msgs.length - 2));
+    },
     faucet: () =>
       send('Mock USDC from the faucet', '10,000 mock USDC is in your wallet.', [call(QORECHAIN.usdc, MockUSDCAbi, 'faucet')], 600_000),
     /// One transaction, one ML-DSA-87 signature: the approval only when it is missing, then the deposit.

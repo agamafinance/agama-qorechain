@@ -111,6 +111,25 @@ export default function FaucetPage() {
             />
           </StepRow>
 
+          <StepRow
+            icon="/logos/usdc.svg"
+            title="Lend the fest's fUSD"
+            blurb={
+              !address
+                ? 'Connect QoreX first.'
+                : (user.fusd ?? 0n) === 0n
+                  ? "No fUSD here: QoreChain's dashboard faucet pays 1,000 a day, then swap it one to one for the vault's USDC."
+                  : `${fmt(user.fusd)} fUSD from QoreChain's faucet. One signature converts it, approves and swaps it one to one.`
+            }
+          >
+            <TxButton
+              fit
+              label={(user.fusd ?? 0n) > 0n ? `Swap ${fmt(user.fusd)} fUSD` : 'Swap fUSD'}
+              disabled={!address || noGas || !user.fusd}
+              action={() => act.rampFusd(user.fusd!, user.fusdBank ?? 0n)}
+            />
+          </StepRow>
+
           {/* Next step */}
           <Link href="/" className="group mt-6 flex items-center gap-4 rounded-2xl bg-[#254839] px-5 py-4">
             {/* eslint-disable-next-line @next/next/no-img-element */}
