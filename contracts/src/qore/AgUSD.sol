@@ -382,18 +382,22 @@ contract AgUSD is ERC4626, PqcGoverned, Pausable, ReentrancyGuard {
     ///      once everything has unlocked, the fee recipient's shares are worth exactly the fee. See Agama on
     ///      Whitechain for the derivation.
     function _recognizeGain(uint256 gain) private returns (uint256 feeShares) {
-        uint256 fee = gain.mulDiv(config.performanceFeeBps, BPS);
-        address recipient = config.feeRecipient;
         uint256 unvested = unvestedProfit();
         lockedAt = uint64(block.timestamp);
 
+        uint256 gross = _idle() + deployedAssets;
+        uint256 vested = gross > pendingRedemptions ? gross - pendingRedemptions : 0;
+        // After a loss deep enough to leave the queue owed more than the vault holds, the first part of any gain
+        // only refills the queue's shortfall: it is nobody's profit, so it is neither locked nor charged a fee.
+        if (gain > vested) gain = vested;
+
+        uint256 fee = gain.mulDiv(config.performanceFeeBps, BPS);
+        address recipient = config.feeRecipient;
         if (fee == 0 || recipient == address(0)) {
             lockedProfit = unvested + gain;
             return 0;
         }
 
-        uint256 gross = _idle() + deployedAssets;
-        uint256 vested = gross > pendingRedemptions ? gross - pendingRedemptions : 0;
         uint256 before = vested > gain + unvested ? vested - gain - unvested : 0;
 
         feeShares = fee.mulDiv(totalSupply() + 10 ** _decimalsOffset(), vested - fee, Math.Rounding.Floor);
