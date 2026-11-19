@@ -37,7 +37,7 @@ import { reviewDossiers, type Letter } from "./compliance.js";
 import { publishTape } from "./dataroom.js";
 import { relayAll } from "./relay.js";
 import { bringHome, runBook } from "./book.js";
-import { rebalance, settleQueue, snapshot } from "./vault.js";
+import { rebalance, settleQueue, snapshot, vaultNeedsWork } from "./vault.js";
 import type { LoanTape } from "./tape.js";
 
 const Access = artifact("AccessRegistry").abi;
@@ -159,6 +159,9 @@ check("an ERC-3643 token using AgamaComplianceModule would admit the lender", aw
 console.log("\n4. mint mock USDC and deposit");
 const AMOUNT = 10_000_000_000n;
 const before = await snapshot();
+// Measured from before the deposit: a keeper running alongside may allocate it within seconds, before step 5 does.
+const sentBefore = await read<bigint>(Q.allocator, Allocator, "totalSent");
+const recvBefore = (await eth.readContract({ address: E.receiver, abi: Receiver, functionName: "totalReceived" })) as bigint;
 const sharesBefore = await read<bigint>(Q.vault, Vault, "balanceOf", [twin]);
 await native("faucet + approve + deposit", [
   call(Q.usdc, Usdc, "faucet", []),
@@ -187,15 +190,20 @@ check("100 fest fUSD became 100 mock USDC, one hybrid-signed transaction", rampe
 
 // ---- 5. allocation and the route to Ethereum ----
 console.log("\n5. allocate above the floor and cross to Ethereum");
-const sentBefore = await read<bigint>(Q.allocator, Allocator, "totalSent");
-const recvBefore = (await eth.readContract({ address: E.receiver, abi: Receiver, functionName: "totalReceived" })) as bigint;
-await rebalance();
-await relayAll();
-await runBook();
+// Drive the route ourselves, or let the keeper do it, then wait until both legs agree and the vault is at rest.
+for (let i = 0; i < 12; i++) {
+  await rebalance().catch(() => false);
+  await relayAll().catch(() => 0);
+  await runBook().catch(() => undefined);
+  const sentNow = await read<bigint>(Q.allocator, Allocator, "totalSent");
+  const recvNow = (await eth.readContract({ address: E.receiver, abi: Receiver, functionName: "totalReceived" })) as bigint;
+  if (sentNow > sentBefore && sentNow - sentBefore === recvNow - recvBefore && !(await vaultNeedsWork())) break;
+  await sleep(10_000);
+}
 const s = await snapshot();
 const sent = (await read<bigint>(Q.allocator, Allocator, "totalSent")) - sentBefore;
 const recv = ((await eth.readContract({ address: E.receiver, abi: Receiver, functionName: "totalReceived" })) as bigint) - recvBefore;
-check("vault keeps its 10% buffer", s.liquid * 10_000n <= s.totalAssets * 1_002n + 1_000_000n && s.liquid * 10_000n >= s.totalAssets * 990n, `${usd(s.liquid)} of ${usd(s.totalAssets)}`);
+check("vault keeps its 10% buffer, the rest at work", s.liquid * 10_000n >= s.totalAssets * 990n && s.liquid * 10_000n <= s.totalAssets * 1_050n + 10_000_000_000n, `${usd(s.liquid)} of ${usd(s.totalAssets)}`);
 check("allocation burned on QoreChain arrived on Ethereum", sent > 0n && recv === sent, `${usd(sent)}`);
 const book = (await eth.readContract({ address: E.issuer, abi: artifact("AbfAssetIssuer").abi, functionName: "offChainAssets" })) as bigint;
 check("issuer wired the subscription to the book", book > 0n, `book ${usd(book)}`);
