@@ -27,8 +27,8 @@ export async function registerPqc(role: Role) {
 export async function registerKem(role: "compliance" | "auditor") {
   const acc = await account(role);
   const keys = sealKeys(role);
-  const cur = await fetchKemKey({ rest: REST, address: acc.cosmos }).catch(() => ({ found: false }) as any);
-  if (cur.found && Buffer.from(cur.key.publicKey).equals(Buffer.from(keys.mlkemPublicKey))) {
+  const cur = await fetchKemKey({ rest: REST, address: acc.cosmos }).catch(() => ({ registered: false }) as const);
+  if (cur.registered && cur.publicKey && Buffer.from(cur.publicKey).equals(Buffer.from(keys.mlkemPublicKey))) {
     return console.log(`${role}: ML-KEM-1024 key already published`);
   }
   const m = qmsg.pqc.registerKemKey({ sender: acc.cosmos, algorithmId: 2, publicKey: keys.mlkemPublicKey });
@@ -63,9 +63,9 @@ export async function status() {
   for (const role of ROLES) {
     const acc = await account(role);
     const st = await fetchPqcStatus({ rest: REST, address: acc.cosmos }).catch(() => ({ registered: false }) as any);
-    const kem = await fetchKemKey({ rest: REST, address: acc.cosmos }).catch(() => ({ found: false }) as any);
+    const kem = await fetchKemKey({ rest: REST, address: acc.cosmos }).catch(() => ({ registered: false }));
     const qor = Number(await qorBalance(acc.cosmos)) / 1e6;
-    console.log(`${role.padEnd(10)} ${acc.evm} ${acc.cosmos}  ${qor.toFixed(3).padStart(9)} QOR  ML-DSA ${st.registered ? "yes" : "no "}  ML-KEM ${kem.found ? "yes" : "no"}`);
+    console.log(`${role.padEnd(10)} ${acc.evm} ${acc.cosmos}  ${qor.toFixed(3).padStart(9)} QOR  ML-DSA ${st.registered ? "yes" : "no "}  ML-KEM ${kem.registered ? "yes" : "no"}`);
   }
   console.log("operator window:", JSON.stringify(await windowStatus().catch((e) => String(e)), (_, v) => (typeof v === "bigint" ? v.toString() : v)));
 }
