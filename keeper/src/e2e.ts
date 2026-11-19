@@ -29,6 +29,7 @@ import { sealKeys } from "./accounts.js";
 import { E, Q } from "./config.js";
 import { artifact } from "./evm.js";
 import { treasuryClient } from "./native.js";
+import { CONVERT_COIN_TYPE_URL } from "./erc20Msgs.js";
 import { eth, qore, REST, sleep } from "./net.js";
 import { aadFor, officer, SEAL } from "./sealing.js";
 import { reviewDossiers, type Letter } from "./compliance.js";
@@ -92,8 +93,11 @@ const pqc = (await read<[boolean, number, Hex, boolean]>("0x00000000000000000000
 check("lender's EVM twin is quantum safe (pqcKeyStatus)", pqc[0] && pqc[3], `ML-DSA-87 key of ${(pqc[2].length - 2) / 2} bytes, possession proven`);
 const onContract = await read<Hex>(Q.access, Access, "encryptionKey", [twin]);
 if (onContract !== toHex(keys.mlkemPublicKey)) {
+  // QoreChain refuses to publish the same KEM key twice (pqc 253), so the registry message goes only when needed.
+  const inRegistry = await fetchKemKey({ rest: REST, address: lender }).catch(() => ({ registered: false }) as const);
+  const same = inRegistry.registered && Buffer.from(inRegistry.publicKey!).equals(Buffer.from(keys.mlkemPublicKey));
   await native("publish encryption key", [
-    qmsg.pqc.registerKemKey({ sender: lender, algorithmId: 2, publicKey: keys.mlkemPublicKey }),
+    ...(same ? [] : [qmsg.pqc.registerKemKey({ sender: lender, algorithmId: 2, publicKey: keys.mlkemPublicKey })]),
     call(Q.access, Access, "publishEncryptionKey", [toHex(keys.mlkemPublicKey)]),
   ], 2_500_000);
   await sleep(3_000);
@@ -142,6 +146,8 @@ const letter = JSON.parse(new TextDecoder().decode(open({
 }))) as Letter;
 check("lender opens its sealed decision letter", letter.decision === "approved", `${letter.tierName}, until ${new Date(letter.expiresAt! * 1000).toISOString().slice(0, 10)}`);
 check("the letter names the dossier the officer read", letter.dossierHash === keccak256(stored));
+check("the officer verified the filing transaction's two signatures (QoreSign)", !!letter.provenance?.classical && !!letter.provenance?.postQuantum, `tx ${letter.provenance?.tx.slice(0, 12)}…`);
+check("an ERC-3643 token using AgamaComplianceModule would admit the lender", await read<boolean>(Q.complianceModule as Address, artifact("AgamaComplianceModule").abi, "moduleCheck", [ "0x0000000000000000000000000000000000000000", twin, 1n, twin ]));
 
 // ---- 4. deposit ----
 console.log("\n4. mint mock USDC and deposit");
@@ -158,6 +164,20 @@ const shares = (await read<bigint>(Q.vault, Vault, "balanceOf", [twin])) - share
 check("agUSD minted to the approved lender", shares > 0n, `${formatUnits(shares, 6)} agUSD`);
 const stranger = "0x000000000000000000000000000000000000dEaD";
 check("a stranger cannot be sent agUSD (maxDeposit 0)", (await read<bigint>(Q.vault, Vault, "maxDeposit", [stranger])) === 0n);
+
+// ---- 4b. the fest's own dollar: bank fUSD -> ERC-20 (MsgConvertCoin) -> mock USDC through the on-ramp ----
+console.log("\n4b. lend the fest's fUSD");
+const FUSD = Q.fusd as Address;
+const FUSD_IN = 100_000_000n;
+const usdcBeforeRamp = await read<bigint>(Q.usdc, Usdc, "balanceOf", [twin]);
+await native("fUSD: convert + on-ramp", [
+  { typeUrl: CONVERT_COIN_TYPE_URL, value: { coin: { denom: `erc20:${FUSD}`, amount: FUSD_IN.toString() }, receiver: twin, sender: lender } },
+  call(FUSD, Usdc, "approve", [Q.fusdOnRamp, FUSD_IN]),
+  call(Q.fusdOnRamp as Address, artifact("FestUsdOnRamp").abi, "onRamp", [FUSD_IN]),
+], 1_800_000);
+await sleep(3_000);
+const ramped = (await read<bigint>(Q.usdc, Usdc, "balanceOf", [twin])) - usdcBeforeRamp;
+check("100 fest fUSD became 100 mock USDC, one hybrid-signed transaction", ramped === FUSD_IN, `${usd(ramped)}`);
 
 // ---- 5. allocation and the route to Ethereum ----
 console.log("\n5. allocate above the floor and cross to Ethereum");
