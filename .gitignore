@@ -1,0 +1,14 @@
+node_modules/
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+.vercel
+contracts/out/
+contracts/cache/
+contracts/broadcast/*/31337/
+keeper/state.json
+keeper/secrets/
+web/.next/
+web/tsconfig.tsbuildinfo
