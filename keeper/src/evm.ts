@@ -9,6 +9,7 @@ import {
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { pqcSign } from "@qorechain/sdk";
+import { mldsa87 } from "@qorechain/pqc";
 import { account, type Role } from "./accounts.js";
 import { diana, EVM_RPC, eth, qore, sepolia, sepoliaTransport } from "./net.js";
 import { ROOT } from "./deployments.js";
@@ -58,10 +59,37 @@ export async function deploy(chain: Chain, role: Role, name: string, args: unkno
   return receipt.contractAddress;
 }
 
-/** ML-DSA-87 (FIPS 204) signature by `role` over raw bytes. */
+const PQC_KEYS = "0x0000000000000000000000000000000000000a02" as const;
+const keyStatusAbi = [{
+  type: "function", name: "pqcKeyStatus", stateMutability: "view", inputs: [{ name: "account", type: "address" }],
+  outputs: [{ type: "bool" }, { type: "uint8" }, { type: "bytes" }, { type: "bool" }],
+}] as const;
+const registered = new Map<Role, Uint8Array>();
+
+/** The ML-DSA-87 key `role` registered on chain, read from the pqcKeyStatus precompile the contracts use. */
+async function registeredKey(role: Role): Promise<Uint8Array> {
+  let k = registered.get(role);
+  if (!k) {
+    const [ok, , pub, proven] = await qore.readContract({ address: PQC_KEYS, abi: keyStatusAbi, functionName: "pqcKeyStatus", args: [(await account(role)).evm as Address] });
+    if (!ok || !proven) throw new Error(`${role} has no proven ML-DSA-87 key on chain`);
+    registered.set(role, (k = Buffer.from(pub.slice(2), "hex")));
+  }
+  return k;
+}
+
+/**
+ * ML-DSA-87 (FIPS 204) signature by `role` over raw bytes, verified here with qorechain-pqc against the key the
+ * chain holds for `role` before it is used. pqcVerify would refuse a bad one anyway; checking first means a rotated
+ * or mismatched key fails here, for free, instead of as a reverted transaction that still pays its gas limit.
+ */
 export async function pqSign(role: Role, message: Hex): Promise<Hex> {
   const acc = await account(role);
-  return toHex(pqcSign(acc.pqc.secretKey, Buffer.from(message.slice(2), "hex")));
+  const bytes = Buffer.from(message.slice(2), "hex");
+  const sig = pqcSign(acc.pqc.secretKey, bytes);
+  if (!mldsa87.verify(await registeredKey(role), bytes, sig)) {
+    throw new Error(`${role}'s ML-DSA-87 signature does not verify against its on-chain key`);
+  }
+  return toHex(sig);
 }
 
 export const action = (name: string) => stringToHex(name, { size: 32 });
