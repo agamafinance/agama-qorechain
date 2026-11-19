@@ -13,6 +13,10 @@ export const QORECHAIN = {
   messenger: q.messenger as Address,
   allocator: q.allocator as Address,
   dataRoom: q.dataRoom as Address,
+  hybridGuard: q.hybridGuard as Address,
+  complianceModule: q.complianceModule as Address,
+  fusd: q.fusd as Address,
+  fusdOnRamp: q.fusdOnRamp as Address,
   roles: q.roles as Record<'operator' | 'admin' | 'reporter' | 'compliance' | 'attester' | 'guardian' | 'auditor', Address>,
 };
 

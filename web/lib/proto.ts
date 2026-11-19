@@ -61,3 +61,11 @@ export function registerKemKey(sender: string, publicKey: Uint8Array): EncodedMs
   const value = new Writer().string(1, sender).uint(2, 2).bytes(3, publicKey).finish();
   return { typeUrl: '/qorechain.pqc.v1.MsgRegisterKEMKey', value };
 }
+
+/// Moves a bank coin (the form the QoreChain faucet pays fUSD in) to its ERC-20 form on `receiver`.
+///   cosmos.evm.erc20.v1.MsgConvertCoin { coin=1 (Coin{denom=1, amount=2}), receiver=2, sender=3 }
+export function convertCoin(sender: string, receiver: Hex, denom: string, amount: bigint): EncodedMsg {
+  const coin = new Writer().string(1, denom).string(2, amount.toString()).finish();
+  const value = new Writer().bytes(1, coin).string(2, receiver).string(3, sender).finish();
+  return { typeUrl: '/cosmos.evm.erc20.v1.MsgConvertCoin', value };
+}
