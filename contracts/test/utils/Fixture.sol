@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity ^0.8.28;
 
+import {QoreChainHybridHolderGuard} from "@qorechain/asset-kit/guard/QoreChainHybridHolderGuard.sol";
 import {Test, Vm} from "forge-std/Test.sol";
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 
@@ -61,6 +62,7 @@ abstract contract Fixture is Test {
     MockUSDC internal qUsdc;
     PqAttestedMessenger internal qMessenger;
     AccessRegistry internal registry;
+    QoreChainHybridHolderGuard internal hybridGuard;
     DataRoom internal dataRoom;
     AgUSD internal vault;
     CrossChainAllocator internal allocator;
@@ -101,7 +103,8 @@ abstract contract Fixture is Test {
         qMessenger = new PqAttestedMessenger(QORECHAIN, IBurnMintToken(address(qUsdc)), pqAttester, admin);
         qUsdc.grantRole(qUsdc.MINTER_ROLE(), address(qMessenger));
         qUsdc.grantRole(qUsdc.MINTER_ROLE(), deployer);
-        registry = new AccessRegistry(admin, officer);
+        hybridGuard = new QoreChainHybridHolderGuard(admin);
+        registry = new AccessRegistry(admin, officer, hybridGuard);
         dataRoom = new DataRoom(registry, admin, manager);
         vault = new AgUSD(qUsdc, registry, admin, reporter, guardian, defaultConfig());
         allocator = new CrossChainAllocator(

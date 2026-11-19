@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity ^0.8.28;
 
+import {IHolderEligibility} from "@qorechain/asset-kit/interfaces/IHolderEligibility.sol";
 import {Fixture} from "./utils/Fixture.sol";
 import {AccessRegistry} from "../src/qore/AccessRegistry.sol";
 import {PqcAuth} from "../src/pqc/PqcAuth.sol";
@@ -31,6 +32,25 @@ contract AccessRegistryTest is Fixture {
     }
 
     // ---- publishing an encryption key ----
+
+    // ---- the Asset Kit's guard decides "quantum safe" ----
+
+    function test_theRegistryIsAnAssetKitEligibilityPolicy() public {
+        address lender = makeAddr("asset-kit-lender");
+        _onboard(lender);
+        IHolderEligibility policy = registry;
+        assertTrue(policy.isEligible(lender));
+        assertEq(address(registry.hybridGuard()), address(hybridGuard));
+    }
+
+    function test_eligibilityFailsClosedWithoutThePrecompile() public {
+        address lender = makeAddr("closed-lender");
+        _onboard(lender);
+        assertTrue(registry.isEligible(lender));
+        // A network where pqcKeyStatus does not answer: the guard reads nothing and refuses everyone.
+        vm.etch(address(0x0000000000000000000000000000000000000a02), "");
+        assertFalse(registry.isEligible(lender));
+    }
 
     function test_publishEncryptionKeyNeedsAQuantumSafeAccount() public {
         bytes memory k = _mlkemKey();
@@ -372,8 +392,8 @@ contract AccessRegistryTest is Fixture {
 
     function test_constructorRefusesZeroRoles() public {
         vm.expectRevert(PqcGoverned.ZeroAddress.selector);
-        new AccessRegistry(address(0), officer);
+        new AccessRegistry(address(0), officer, hybridGuard);
         vm.expectRevert(PqcGoverned.ZeroAddress.selector);
-        new AccessRegistry(admin, address(0));
+        new AccessRegistry(admin, address(0), hybridGuard);
     }
 }
