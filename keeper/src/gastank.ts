@@ -78,9 +78,16 @@ export async function refuel(qor = TANK.perTxQor) {
     wallet: k.wallet, relayer: op.cosmos, chainId: CHAIN_ID, account: owner, to: op.cosmos, amount: `${uqor(qor)}uqor`, nonce,
   } as any);
   const tx = await sendNative("operator", [msg], "hybrid", 400_000);
-  const t = await (await fetch(`${REST}/cosmos/tx/v1beta1/txs/${tx}`, { headers: { "user-agent": "curl/8.7.1" } })).json() as any;
-  const [x] = decodeAuthenticatorExecutions({ msgResponses: t.tx_response?.msg_responses ?? [], events: t.tx_response?.events ?? [] } as any, [msg]);
-  if (x && !x.success) throw new Error(`refuel refused by the chain: ${x.reason ?? "execution failed"}`);
+  // A refused execution still lands with code 0: the chain records the refusal as an event, with its reason.
+  const t = (await (await fetch(`${REST}/cosmos/tx/v1beta1/txs/${tx}`, { headers: { "user-agent": "curl/8.7.1" } })).json()) as any;
+  const events: any[] = t.tx_response?.events ?? [];
+  const failed = events.find((e) => e.type === "abstractaccount_execution_failed");
+  if (failed) {
+    const why = failed.attributes.find((a: any) => a.key === "reason")?.value ?? "execution failed";
+    throw new Error(`refused by the chain: ${why}`);
+  }
+  const [x] = decodeAuthenticatorExecutions({ msgResponses: t.tx_response?.msg_responses ?? [], events } as any, [msg]);
+  if (x && !x.success) throw new Error(`refused by the chain: ${x.reason ?? "execution failed"}`);
   console.log(`  gas tank: ${qor} QOR treasury -> operator  ${tx}`);
   return tx;
 }
