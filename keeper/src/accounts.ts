@@ -48,9 +48,10 @@ function funderMnemonic(): string {
   return existsSync(file) ? readFileSync(file, "utf8").trim() : mnemonic();
 }
 
-export async function treasury() {
+/** A QoreX-style account (coin 118) of the funding mnemonic: index 0 funds, index 1 is the browser e2e lender. */
+export async function treasury(index = 0) {
   const m = funderMnemonic();
-  const native = await deriveNativeAccount(m);
+  const native = await deriveNativeAccount(m, { accountIndex: index });
   return { native, pqc: derivePqcCanonical(native.address, m) };
 }
 

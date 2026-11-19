@@ -11,8 +11,8 @@ import { EthNativeSigner, TxClient, directSignerFromPrivateKey, ensurePqcRegiste
 import { CHAIN_ID, REST, RPC, rest } from "./net.js";
 import { account, treasury, type Role } from "./accounts.js";
 
-export async function treasuryClient() {
-  const t = await treasury();
+export async function treasuryClient(index = 0) {
+  const t = await treasury(index);
   const signer = await directSignerFromPrivateKey(t.native.privateKey, "qor");
   const client = await TxClient.connect({ rpcEndpoint: RPC, signer, registry: qorechainRegistry(), pqcKeypair: t.pqc, rest: REST });
   // Registers the account's canonical ML-DSA-87 key (the one QoreX derives from the same mnemonic) the first time.
