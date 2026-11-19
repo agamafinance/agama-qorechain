@@ -37,8 +37,19 @@ export function account(role: Role): Promise<UnifiedAccount> {
   return a;
 }
 
+/**
+ * The QoreX account that funds the role accounts. A separate testnet mnemonic when one is given
+ * (QORE_FUNDER_MNEMONIC, or ~/.config/qorechain/agama-funder.mnemonic), else the treasury of the main mnemonic.
+ */
+function funderMnemonic(): string {
+  const env = process.env.QORE_FUNDER_MNEMONIC?.trim();
+  if (env) return env;
+  const file = join(homedir(), ".config/qorechain/agama-funder.mnemonic");
+  return existsSync(file) ? readFileSync(file, "utf8").trim() : mnemonic();
+}
+
 export async function treasury() {
-  const m = mnemonic();
+  const m = funderMnemonic();
   const native = await deriveNativeAccount(m);
   return { native, pqc: derivePqcCanonical(native.address, m) };
 }

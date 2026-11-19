@@ -7,7 +7,7 @@
  */
 import { StargateClient } from "@cosmjs/stargate";
 import type { EncodeObject } from "@cosmjs/proto-signing";
-import { EthNativeSigner, TxClient, directSignerFromPrivateKey, qorechainRegistry } from "@qorechain/sdk";
+import { EthNativeSigner, TxClient, directSignerFromPrivateKey, ensurePqcRegistered, qorechainRegistry } from "@qorechain/sdk";
 import { CHAIN_ID, REST, RPC, rest } from "./net.js";
 import { account, treasury, type Role } from "./accounts.js";
 
@@ -15,6 +15,8 @@ export async function treasuryClient() {
   const t = await treasury();
   const signer = await directSignerFromPrivateKey(t.native.privateKey, "qor");
   const client = await TxClient.connect({ rpcEndpoint: RPC, signer, registry: qorechainRegistry(), pqcKeypair: t.pqc, rest: REST });
+  // Registers the account's canonical ML-DSA-87 key (the one QoreX derives from the same mnemonic) the first time.
+  await ensurePqcRegistered(client, { pqcKeypair: t.pqc, rest: REST } as any);
   return { client, address: t.native.address };
 }
 
