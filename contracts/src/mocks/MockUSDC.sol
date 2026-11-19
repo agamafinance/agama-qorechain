@@ -35,4 +35,10 @@ contract MockUSDC is ERC20, AccessControl {
     function burn(uint256 amount) external {
         _burn(msg.sender, amount);
     }
+
+    /// @notice Burns from `from` within the allowance it gave the caller, as the fUSD on-ramp does on the way back.
+    function burnFrom(address from, uint256 amount) external {
+        _spendAllowance(from, msg.sender, amount);
+        _burn(from, amount);
+    }
 }
