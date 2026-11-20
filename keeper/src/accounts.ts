@@ -8,6 +8,7 @@
  *   compliance  index 12            ML-DSA-87 signs KYC decisions and data room epochs; ML-KEM-1024 opens dossiers
  *   attester    index 13            the bridge: ML-DSA-87 towards QoreChain, secp256k1 towards Ethereum
  *   auditor     index 14            view key only: ML-KEM-1024, reads every dossier and every report
+ *   relayer     coin 60, index 15   executes, through authz MsgExec, the actions QoreX lenders sign as intents
  *
  * Indexes 0 to 2 belong to another keeper on the same mnemonic; Agama starts at 10 so nonces and windows never
  * collide.
@@ -26,9 +27,9 @@ export function mnemonic(): string {
   return readFileSync(file, "utf8").trim();
 }
 
-export const ROLES = ["operator", "reporter", "compliance", "attester", "auditor"] as const;
+export const ROLES = ["operator", "reporter", "compliance", "attester", "auditor", "relayer"] as const;
 export type Role = (typeof ROLES)[number];
-export const ROLE_INDEX: Record<Role, number> = { operator: 10, reporter: 11, compliance: 12, attester: 13, auditor: 14 };
+export const ROLE_INDEX: Record<Role, number> = { operator: 10, reporter: 11, compliance: 12, attester: 13, auditor: 14, relayer: 15 };
 
 const cache = new Map<Role, Promise<UnifiedAccount>>();
 export function account(role: Role): Promise<UnifiedAccount> {
@@ -41,7 +42,7 @@ export function account(role: Role): Promise<UnifiedAccount> {
  * The QoreX account that funds the role accounts. A separate testnet mnemonic when one is given
  * (QORE_FUNDER_MNEMONIC, or ~/.config/qorechain/agama-funder.mnemonic), else the treasury of the main mnemonic.
  */
-function funderMnemonic(): string {
+export function funderMnemonic(): string {
   const env = process.env.QORE_FUNDER_MNEMONIC?.trim();
   if (env) return env;
   const file = join(homedir(), ".config/qorechain/agama-funder.mnemonic");

@@ -12,7 +12,7 @@ import { verifyHybridTx } from "@qorechain/qoresign";
 import { artifact } from "./evm.js";
 import { CHAIN_ID, RPC, rest } from "./net.js";
 
-export type Provenance = { tx: string; signer: string; classical: boolean; postQuantum: boolean; lane?: "native" | "evm" };
+export type Provenance = { tx: string; signer: string; classical: boolean; postQuantum: boolean; lane?: "native" | "evm" | "relayed" };
 
 const b64 = (s: string) => Uint8Array.from(Buffer.from(s, "base64"));
 export const bech32Of = (twin: Address) => toBech32("qor", hexToBytes(twin));
@@ -26,8 +26,12 @@ export async function dossierProvenance(access: Address, account: Address, dossi
   const abi = artifact("AccessRegistry").abi;
   for (const t of found.tx_responses ?? []) {
     if (t.code) continue;
-    const hit = (t.tx.body.messages as any[]).some((m) => {
+    // Filed by the lender itself, or by Agama's relayer as the lender (authz MsgExec, on an intent the lender signed).
+    const flat = (t.tx.body.messages as any[]).flatMap((m) => (m["@type"] === "/cosmos.authz.v1beta1.MsgExec" ? (m.msgs ?? []).map((x: any) => ({ ...x, relayedBy: m.grantee })) : [m]));
+    let relayedBy: string | undefined;
+    const hit = flat.some((m) => {
       if (m["@type"] !== "/qorechain.crossvm.v1.MsgCrossVMCall" || m.sender !== signer) return false;
+      relayedBy = m.relayedBy;
       try {
         const call = decodeFunctionData({ abi, data: toHex(b64(m.payload)) });
         return call.functionName === "fileDossier" && keccak256(call.args![0] as Hex) === dossierHash;
@@ -37,6 +41,13 @@ export async function dossierProvenance(access: Address, account: Address, dossi
     });
     if (!hit) continue;
 
+    if (relayedBy) {
+      // The relayer's transaction, both signatures verified; the lender's own intent signature was verified against
+      // its on-chain ML-DSA-87 key before the relayer sent anything, and only a lender with a registered key gets there.
+      const res = await verifyTx(t.txhash, t.tx.auth_info.signer_infos[0].public_key, relayedBy);
+      const pq = await rest<any>(`/qorechain/pqc/v1/account/${signer}`).catch(() => null);
+      return { tx: t.txhash, signer, classical: res.classical, postQuantum: res.postQuantum && !!pq?.account?.public_key, lane: "relayed" };
+    }
     const res = await verifyTx(t.txhash, t.tx.auth_info.signer_infos[0].public_key, signer);
     return { tx: t.txhash, signer, ...res, lane: "native" };
   }
