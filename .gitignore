@@ -12,3 +12,4 @@ keeper/state.json
 keeper/secrets/
 web/.next/
 web/tsconfig.tsbuildinfo
+.venv-mldsa/
