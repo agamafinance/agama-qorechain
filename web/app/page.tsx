@@ -74,7 +74,20 @@ export default function EarnPage() {
       return run('Signing in QoreX', () => act.deposit(amt, user.allowance ?? 0n), 'Done. Your agUSD is earning.');
     }
     return instant
-      ? run('Signing in QoreX', () => act.redeem(amt), 'Done. USDC is in your wallet.')
+      ? run(
+          'Signing in QoreX',
+          () =>
+            act.redeem(amt).catch((e) => {
+              // An exit queued by someone else a block earlier settles from the buffer first (first in, first out),
+              // so an instant withdrawal can find it gone. Say so: the button now offers to queue.
+              throw new Error(
+                /revert|failed on chain/i.test(String((e as Error).message))
+                  ? 'The buffer was just used by exits queued before yours. Your agUSD is untouched: queue the withdrawal instead.'
+                  : (e as Error).message,
+              );
+            }),
+          'Done. USDC is in your wallet.',
+        )
       : run('Signing in QoreX', () => act.requestRedeem(amt), 'Queued at today’s price. It pays as cash comes home.');
   };
 
