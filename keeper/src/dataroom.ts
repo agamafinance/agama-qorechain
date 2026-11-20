@@ -15,7 +15,7 @@
  */
 import { hkdf } from "@noble/hashes/hkdf.js";
 import { sha256 } from "@noble/hashes/sha2.js";
-import { encodeAbiParameters, keccak256, stringToHex, toHex, type Address, type Hex } from "viem";
+import { encodeAbiParameters, keccak256, parseAbiItem, stringToHex, toHex, type Address, type Hex } from "viem";
 import { sealBatch, sealEpochKey, type EpochKey } from "@qorechain/qoreseal";
 import { sealKeys } from "./accounts.js";
 import { E, Q, send } from "./config.js";
@@ -46,26 +46,61 @@ const read = <T>(address: Address, abi: any, functionName: string, args: unknown
 
 const membersHash = (members: Address[]) => keccak256(encodeAbiParameters([{ type: "address[]" }], [members]));
 
-/** Starts a new epoch if the approved set differs from the current epoch's members. Returns the current epoch. */
+/** Starts a new epoch if the approved set differs from the current epoch's members, or if the current epoch's key
+ *  distribution was not fully posted. Returns the current epoch. */
 export async function syncEpoch(): Promise<{ epoch: bigint; rotated: boolean }> {
   const members = [...(await read<Address[]>(Q.access, AccessAbi, "approved"))].sort();
   const count = await read<bigint>(Q.dataRoom, RoomAbi, "epochCount");
   if (count > 0n) {
-    const last = await read<Epoch>(Q.dataRoom, RoomAbi, "epochs", [count - 1n]);
-    if (last.membersHash === membersHash(members)) return { epoch: count - 1n, rotated: false };
+    const last = await read<Epoch & { parts: number; partsPosted: number }>(Q.dataRoom, RoomAbi, "epochs", [count - 1n]);
+    if (last.membersHash === membersHash(members) && last.partsPosted === last.parts) return { epoch: count - 1n, rotated: false };
   }
   const epoch = count;
-  const recipients = [await officer("auditor")];
-  for (const m of members) {
-    recipients.push({ mlkemPublicKey: bytes(await read<Hex>(Q.access, AccessAbi, "encryptionKey", [m])) });
+  const auditor = await officer("auditor");
+  const PART = 8;
+  // The key, sealed in parts of eight readers plus the auditor: one envelope for everyone grew 1.6 kB per reader and
+  // past about thirty the public RPC refused the request (FINDINGS 19).
+  const chunks: Address[][] = [];
+  for (let i = 0; i < Math.max(members.length, 1); i += PART) chunks.push(members.slice(i, i + PART));
+  const parts: Hex[] = [];
+  for (const chunk of chunks) {
+    const recipients = [auditor];
+    for (const m of chunk) recipients.push({ mlkemPublicKey: bytes(await read<Hex>(Q.access, AccessAbi, "encryptionKey", [m])) });
+    parts.push(toHex(sealEpochKey({ chainId: SEAL.chainId, purpose: SEAL.epoch, mode: SEAL.mode, epochKey: epochKey(epoch), recipients })));
   }
-  const distribution = toHex(sealEpochKey({ chainId: SEAL.chainId, purpose: SEAL.epoch, mode: SEAL.mode, epochKey: epochKey(epoch), recipients }));
-  const params = encodeAbiParameters([{ type: "uint256" }, { type: "bytes32" }, { type: "bytes32" }], [epoch, membersHash(members), keccak256(distribution)]);
+  const hashes = parts.map((p) => keccak256(p));
+  const params = encodeAbiParameters([{ type: "uint256" }, { type: "bytes32" }, { type: "bytes32" }],
+    [epoch, membersHash(members), keccak256(encodeAbiParameters([{ type: "bytes32[]" }], [hashes]))]);
   const [deadline, sig] = await pqAuthorize(Q.dataRoom, RoomAbi, "compliance", "publishEpoch", params);
-  await send("qorechain", Q.dataRoom, RoomAbi, "publishEpoch", [epoch, members, distribution, deadline, sig], {
-    gas: 3_000_000n, label: `epoch ${epoch} (${members.length} lenders)`,
+  await send("qorechain", Q.dataRoom, RoomAbi, "publishEpoch", [epoch, members, hashes, deadline, sig], {
+    gas: 6_000_000n, label: `epoch ${epoch} (${members.length} lenders, ${parts.length} parts)`,
   });
+  for (let k = 0; k < parts.length; k++) {
+    await send("qorechain", Q.dataRoom, RoomAbi, "publishEpochPart", [epoch, BigInt(k), parts[k]], { gas: 1_500_000n, label: `epoch ${epoch} part ${k}` });
+  }
   return { epoch, rotated: true };
+}
+
+/** The distribution part `account` reads in `epoch`, from the chain: the sealed epoch key, or null. */
+export async function epochEnvelopeFor(epoch: bigint, account: Address): Promise<Hex | null> {
+  const [member, part, at] = await read<readonly [boolean, bigint, bigint]>(Q.dataRoom, RoomAbi, "partOf", [epoch, account]);
+  if (!member || at === 0n) return null;
+  const logs = await qore.getLogs({
+    address: Q.dataRoom, event: parseAbiItem("event EpochPart(uint256 indexed epoch, uint256 indexed part, bytes distribution)"),
+    args: { epoch, part }, fromBlock: at, toBlock: at,
+  });
+  return (logs.at(-1)?.args.distribution as Hex) ?? null;
+}
+
+/** Part 0, which the auditor (a recipient of every part) can always open. */
+export async function epochEnvelopeForAuditor(epoch: bigint): Promise<Hex | null> {
+  const at = await read<bigint>(Q.dataRoom, RoomAbi, "partBlock", [epoch, 0n]);
+  if (at === 0n) return null;
+  const logs = await qore.getLogs({
+    address: Q.dataRoom, event: parseAbiItem("event EpochPart(uint256 indexed epoch, uint256 indexed part, bytes distribution)"),
+    args: { epoch, part: 0n }, fromBlock: at, toBlock: at,
+  });
+  return (logs.at(-1)?.args.distribution as Hex) ?? null;
 }
 
 /** Publishes the loan tape under the current epoch when it is due. */
