@@ -145,8 +145,9 @@ for (const l of lenders) if ((await bal(l.address)) < 1_500_000n) toFund.push(l)
 if (toFund.length) {
   const op = (await import("./accounts.js")).account;
   const from = (await op("operator")).cosmos;
+  // Refused profiles send the transactions that must fail, and QoreChain charges a failed one its whole gas limit.
   await sendNative("operator", toFund.map((l) => ({
-    typeUrl: "/cosmos.bank.v1beta1.MsgSend", value: { fromAddress: from, toAddress: l.address, amount: [{ denom: "uqor", amount: "1600000" }] },
+    typeUrl: "/cosmos.bank.v1beta1.MsgSend", value: { fromAddress: from, toAddress: l.address, amount: [{ denom: "uqor", amount: l.eligible ? "1600000" : "2200000" }] },
   })), "hybrid", 200_000 + 60_000 * toFund.length);
   console.log(`  funded ${toFund.length} lenders with 1.6 QOR each from the operator`);
   await sleep(4_000);
@@ -241,12 +242,12 @@ console.log(`\n== ${phase}`);
   const r = refused[0];
   const bad = await native(r, "deposit while refused", [
     call(r, Q.usdc, Usdc, "faucet", []), call(r, Q.usdc, Usdc, "approve", [Q.vault, maxUint256]), call(r, Q.vault, Vault, "deposit", [1_000_000_000n, r.twin]),
-  ], 1_500_000, true);
+  ], 900_000, true);
   check("a refused lender's deposit fails on chain, atomically", bad.failed && (await read<bigint>(Q.vault, Vault, "balanceOf", [r.twin])) === 0n && (await read<bigint>(Q.usdc, Usdc, "balanceOf", [r.twin])) === 0n,
     "the faucet mint in the same transaction rolled back too");
-  const short = await native(r, "publish a 1,000-byte key", [call(r, Q.access, Access, "publishEncryptionKey", [toHex(new Uint8Array(1000))])], 1_500_000, true);
+  const short = await native(r, "publish a 1,000-byte key", [call(r, Q.access, Access, "publishEncryptionKey", [toHex(new Uint8Array(1000))])], 500_000, true);
   check("a key that is not ML-KEM-1024 is refused", short.failed);
-  const notSealed = await native(r, "file a dossier in clear", [call(r, Q.access, Access, "fileDossier", [toHex(new TextEncoder().encode(JSON.stringify({ name: r.name, country: r.country }).padEnd(80)))])], 2_000_000, true);
+  const notSealed = await native(r, "file a dossier in clear", [call(r, Q.access, Access, "fileDossier", [toHex(new TextEncoder().encode(JSON.stringify({ name: r.name, country: r.country }).padEnd(80)))])], 500_000, true);
   check("a dossier that is not a QoreSeal envelope is refused", notSealed.failed);
 }
 
@@ -298,7 +299,7 @@ check("vault assets grew by the deposits", snap1.totalAssets - snap0.totalAssets
   await native(a, "agUSD to another approved lender", [call(a, Q.vault, Vault, "transfer", [b.twin, amount])], 800_000);
   check("agUSD moves between two approved lenders", (await read<bigint>(Q.vault, Vault, "balanceOf", [b.twin])) - bBefore === amount);
   a.shares! -= amount; b.shares! += amount;
-  const toRefused = await native(a, "agUSD to a refused account", [call(a, Q.vault, Vault, "transfer", [refused[0].twin, amount])], 800_000, true);
+  const toRefused = await native(a, "agUSD to a refused account", [call(a, Q.vault, Vault, "transfer", [refused[0].twin, amount])], 600_000, true);
   check("agUSD cannot be sent to a refused account", toRefused.failed && (await read<bigint>(Q.vault, Vault, "balanceOf", [refused[0].twin])) === 0n);
 }
 
