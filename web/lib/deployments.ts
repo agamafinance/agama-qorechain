@@ -10,6 +10,7 @@ export const QORECHAIN = {
   usdc: q.usdc as Address,
   access: q.access as Address,
   vault: q.vault as Address,
+  pqAccountFactory: q.pqAccountFactory as Address,
   messenger: q.messenger as Address,
   allocator: q.allocator as Address,
   dataRoom: q.dataRoom as Address,

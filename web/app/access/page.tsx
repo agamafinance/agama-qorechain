@@ -1,5 +1,5 @@
 'use client';
-import { RelaySetup } from '@/components/RelaySetup';
+import { KeyNotice } from '@/components/KeyNotice';
 
 // Access: how a lender gets into a permissioned vault without putting its identity on a public chain.
 //
@@ -72,7 +72,7 @@ export default function AccessPage() {
       </Hero>
 
       <Panel>
-        <RelaySetup />
+        <KeyNotice />
         {!account ? (
           <div className={`${card} text-center`}>
             <p className="text-[15px] text-fg-muted">Connect QoreX to apply. It signs every step with ML-DSA-87.</p>

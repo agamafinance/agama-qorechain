@@ -205,7 +205,7 @@ export function Onboarding() {
               'Get verified'
             )}
           </button>
-          <p className="mt-2 text-center text-[12px] text-fg-muted">A few quick approvals in QoreX, from your QoreX account.</p>
+          <p className="mt-2 text-center text-[12px] text-fg-muted">A few signatures in QoreX. No gas, nothing to set up.</p>
           <Status error={err} />
         </>
       )}
@@ -247,7 +247,8 @@ function HowProtected() {
       {open && (
         <ul className="mt-2 space-y-1 text-[12px] text-fg-muted">
           <li>Your answers are encrypted in this browser with ML-KEM-1024 (QoreSeal); the chain only stores ciphertext.</li>
-          <li>Your key is made here, never leaves the device, and is published from your QoreX account.</li>
+          <li>Your key is made here, never leaves the device, and is published from your Agama account.</li>
+          <li>Your Agama account is a contract only your ML-DSA-87 key controls: every signature is checked on chain by pqcVerify.</li>
           <li>The decision is signed with ML-DSA-87 and checked on chain by QoreChain&apos;s pqcVerify.</li>
           <li>Back up your key from Portfolio to read your letter and the data room on another device.</li>
         </ul>

@@ -2,12 +2,11 @@
  * QoreX, QoreChain's wallet, through its official integration types (@qorechain/qorex-types), on the lender's usual
  * QoreX account.
  *
- * QoreX signs only what it can show its user. It shows authz grants and arbitrary messages, but it has no screen for
- * MsgCrossVMCall, the message a QoreChain account calls an EVM contract with. So Agama works this way:
- *   - once: the lender opens an EVM access window in QoreX, and authorizes Agama's relayer (an authz grant for
- *     MsgCrossVMCall, with an expiry, signed and broadcast by QoreX, hybrid secp256k1 + ML-DSA-87);
- *   - each action: the lender signs an intent with signArbitrary (ADR-36 secp256k1 + ML-DSA-87); the relayer checks
- *     it against the lender's on-chain ML-DSA-87 key and executes it as the lender (MsgExec), paying the gas.
+ * QoreX signs only what it can show its user, and it has no screen for MsgCrossVMCall, the message a QoreChain
+ * account calls an EVM contract with. So the lender's Agama account is a PqAccount (contracts/src/account): the
+ * lender signs each action as a plain-text message (signArbitrary: secp256k1 + ML-DSA-87), Agama's relayer submits
+ * it, and the PqAccount checks the ML-DSA-87 signature on chain with pqcVerify before it acts. No EVM window, no
+ * grant, no gas: just a signature.
  */
 import {
   getQorexNative,
@@ -18,7 +17,9 @@ import {
   type QorexNativeProvider,
   type QorexSignAndBroadcastResult,
 } from '@qorechain/qorex-types';
-import { bytesToHex, toHex, type Hex } from 'viem';
+import { bytesToHex, parseAbi, toHex, type Hex } from 'viem';
+import { qore } from './chains';
+import { QORECHAIN } from './deployments';
 
 export type QorexResult = QorexSignAndBroadcastResult;
 export const QOREX_DOWNLOAD = QOREX_DOWNLOAD_URLS;
@@ -40,15 +41,23 @@ export async function waitForQorex(ms = 1500): Promise<QorexNativeProvider | nul
   return qorex();
 }
 
-export type Account = { address: string; evm: Hex; name: string };
+/**
+ * `address`: the lender's QoreX account (qor1). `owner`: the same 20 bytes in 0x form, the key holder.
+ * `evm`: the lender's Agama account, the PqAccount its ML-DSA-87 key controls; it holds the USDC, the agUSD and the
+ * application. Its address is known before it exists (CREATE2); the first signed action creates it.
+ */
+export type Account = { address: string; evm: Hex; owner: Hex; name: string };
+
+const factoryAbi = parseAbi(['function accountOf(address owner) view returns (address)']);
 
 export async function connectQorex(): Promise<Account> {
   const n = await waitForQorex();
   if (!n) throw new Error('QoreX is not installed');
   await n.enable(CHAIN);
   const key = await n.getKey(CHAIN);
-  // The EVM side sees the same 20 bytes as a 0x address.
-  return { address: key.bech32Address, evm: toHex(Uint8Array.from(key.address)), name: key.name };
+  const owner = toHex(Uint8Array.from(key.address));
+  const evm = (await qore.readContract({ address: QORECHAIN.pqAccountFactory, abi: factoryAbi, functionName: 'accountOf', args: [owner] })) as Hex;
+  return { address: key.bech32Address, evm: evm.toLowerCase() as Hex, owner, name: key.name };
 }
 
 /** Hands `messages` to QoreX as one transaction: it shows them, hybrid-signs and broadcasts. */

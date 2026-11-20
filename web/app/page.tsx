@@ -14,7 +14,7 @@ import { Route } from '@/components/Route';
 import { CreditVaults } from '@/components/CreditVaults';
 import { BridgeSecurity } from '@/components/BridgeSecurity';
 import { Onboarding } from '@/components/Onboarding';
-import { RelaySetup } from '@/components/RelaySetup';
+import { KeyNotice } from '@/components/KeyNotice';
 import { QOR_FAUCET } from '@/lib/chains';
 import { DASH, fmt, parse, raw, usd } from '@/lib/format';
 import { netApy, precisePrice, useActions, useActivity, useBook, useUser, useVault } from '@/lib/protocol';
@@ -159,7 +159,7 @@ export default function EarnPage() {
               )}
             </div>
 
-            <RelaySetup className="mt-4" />
+            <KeyNotice className="mt-4" />
             {onboarding ? (
               <Onboarding />
             ) : (

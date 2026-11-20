@@ -8,7 +8,7 @@
 // so everything a lender's own action changes is read back from contract state, never from logs; the logs read
 // here are the keeper's, sent on the EVM lane.
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { encodeFunctionData, maxUint256, parseAbiItem, toHex, type Address, type Hex } from 'viem';
+import { encodeAbiParameters, encodeFunctionData, keccak256, maxUint256, parseAbiItem, toHex, type Address, type Hex } from 'viem';
 import {
   AbfAssetIssuerAbi,
   AccessRegistryAbi,
@@ -470,35 +470,41 @@ const sha256Hex = async (h: Hex) => {
   return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', b)), (x) => x.toString(16).padStart(2, '0')).join('');
 };
 
+type Call = { target: Address; data: Hex };
+const callsAbi = [{ type: 'tuple[]', components: [{ name: 'target', type: 'address' }, { name: 'data', type: 'bytes' }] }] as const;
+const pqAccountAbi = [{ type: 'function', name: 'nonce', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] }] as const;
+
+/// The text the lender signs, exactly as its PqAccount rebuilds it on chain (PqAccount.textFor).
+function pqText(account: Address, calls: Call[], summary: string, nonce: bigint, deadline: bigint) {
+  const h = keccak256(encodeAbiParameters(callsAbi, [calls]));
+  return `${summary}\n\nAgama account ${account.toLowerCase()}\nnonce ${nonce}\nvalid until ${deadline}\ncalls ${h}`;
+}
+
 export function useActions() {
   const qc = useQueryClient();
   const toast = useToasts();
   const { account } = useWallet();
 
-  /// One action: the lender signs an intent in QoreX (secp256k1 + ML-DSA-87), Agama's relayer verifies it against
-  /// the lender's on-chain key and executes it as the lender. No gas for the lender.
-  async function send(title: string, done: string, action: string, extra: { amount?: bigint; data?: string } = {}, envelope?: Hex) {
+  /// One action: the lender signs a plain-text message in QoreX (secp256k1 + ML-DSA-87); Agama's relayer submits
+  /// it and the lender's PqAccount checks the ML-DSA-87 signature on chain with pqcVerify before it acts.
+  async function send(title: string, done: string, calls: Call[]) {
     if (!account) throw new Error('Connect QoreX first.');
     const id = toast.start(title);
     try {
-      const nonce = Array.from(crypto.getRandomValues(new Uint8Array(12)), (b) => b.toString(16).padStart(2, '0')).join('');
-      const intent = JSON.stringify({
-        agama: 'action-v1',
-        chainId: COSMOS_CHAIN_ID,
-        account: account.address,
-        action,
-        ...(extra.amount !== undefined ? { amount: extra.amount.toString() } : {}),
-        ...(extra.data ? { data: extra.data } : {}),
-        nonce,
-        expires: Math.floor(Date.now() / 1000) + 300,
+      const code = await qore.getCode({ address: account.evm });
+      const nonce = code && code !== '0x' ? ((await qore.readContract({ address: account.evm, abi: pqAccountAbi, functionName: 'nonce' })) as bigint) : 0n;
+      const deadline = BigInt(Math.floor(Date.now() / 1000) + 600);
+      const summary = `Agama: ${title}`;
+      const signature = await signArbitrary(account.address, pqText(account.evm, calls, summary, nonce, deadline));
+      const r = await fetch(`${BASE}/api/relay/pq`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ owner: account.owner, calls, summary, deadline: deadline.toString(), signature }),
       });
-      const signature = await signArbitrary(account.address, intent);
-      const r = await fetch(`${BASE}/api/relay/act`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ intent, signature, envelope }) });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error ?? `relayer ${r.status}`);
       toast.hash(id, j.txHash);
-      toast.done(id, done);
-      // The next block carries the new state; refetch a moment later too, for a node that is a block behind.
+      toast.done(id, `${done} ML-DSA-87 signature checked on chain.`);
       await qc.invalidateQueries();
       for (const ms of [2_500, 6_000, 12_000]) setTimeout(() => void qc.invalidateQueries(), ms);
       return j.txHash as string;
@@ -507,20 +513,46 @@ export function useActions() {
       throw new Error(reason(e));
     }
   }
+  const call = (target: Address, abi: any, functionName: string, args: unknown[] = []): Call => ({ target, data: encodeFunctionData({ abi, functionName, args }) });
+  const me = () => account!.evm as Address;
 
   return {
-    faucet: () => send('Mock USDC from the faucet', '10,000 mock USDC is in your wallet.', 'faucet'),
-    /// The approval, when it is missing, goes in the same transaction as the deposit.
-    deposit: (amount: bigint, _allowance?: bigint) => send(`Deposit ${fmt(amount)} USDC`, 'agUSD minted. It is earning from this block.', 'deposit', { amount }),
-    redeem: (shares: bigint) => send(`Withdraw ${fmt(shares)} agUSD`, 'USDC is in your wallet.', 'redeem', { amount: shares }),
-    requestRedeem: (shares: bigint) => send(`Queue ${fmt(shares)} agUSD`, 'Priced now, paid as cash comes home. See Portfolio.', 'requestRedeem', { amount: shares }),
-    settle: () => send('Push the queue', 'Paid what the cash covers.', 'settle'),
-    /// Binds the lender's ML-KEM-1024 key to its account in the AccessRegistry, which refuses an account without a
-    /// proven ML-DSA-87 key.
-    publishKey: (mlkemPublicKey: Uint8Array) => send('Publish your encryption key', 'Your ML-KEM-1024 key is on chain.', 'publishKey', { data: toHex(mlkemPublicKey) }),
-    fileDossier: async (envelope: Hex) =>
-      send('File your sealed application', 'Filed. Compliance reviews it within a minute.', 'fileDossier', { data: await sha256Hex(envelope) }, envelope),
+    faucet: () => send('Get 10,000 test USDC', '10,000 mock USDC is in your account.', [call(QORECHAIN.usdc, MockUSDCAbi, 'faucet')]),
+    /// The approval, when it is missing, goes with the deposit: one signature.
+    deposit: (amount: bigint, allowance: bigint) =>
+      send(`Deposit ${fmt(amount)} USDC`, 'agUSD minted. It is earning from this block.', [
+        ...(allowance < amount ? [call(QORECHAIN.usdc, MockUSDCAbi, 'approve', [QORECHAIN.vault, maxUint256])] : []),
+        call(QORECHAIN.vault, AgUSDAbi, 'deposit', [amount, me()]),
+      ]),
+    redeem: (shares: bigint) => send(`Withdraw ${fmt(shares)} agUSD`, 'USDC is in your account.', [call(QORECHAIN.vault, AgUSDAbi, 'redeem', [shares, me(), me()])]),
+    requestRedeem: (shares: bigint) =>
+      send(`Queue ${fmt(shares)} agUSD`, 'Priced now, paid as cash comes home. See Portfolio.', [call(QORECHAIN.vault, AgUSDAbi, 'requestRedeem', [shares, me(), me()])]),
+    settle: () => send('Push the queue', 'Paid what the cash covers.', [call(QORECHAIN.vault, AgUSDAbi, 'settleRedemptions', [16n])]),
+    /// Binds the lender's ML-KEM-1024 key to its Agama account in the AccessRegistry.
+    publishKey: (mlkemPublicKey: Uint8Array) =>
+      send('Publish your encryption key', 'Your ML-KEM-1024 key is on chain.', [call(QORECHAIN.access, AccessRegistryAbi, 'publishEncryptionKey', [toHex(mlkemPublicKey)])]),
+    fileDossier: (envelope: Hex) =>
+      send('File your sealed application', 'Filed. Compliance reviews it within a minute.', [call(QORECHAIN.access, AccessRegistryAbi, 'fileDossier', [envelope])]),
   };
+}
+
+/// Whether the lender's QoreX account has its ML-DSA-87 key on chain: the one thing its Agama account needs.
+export function usePqKey() {
+  const { account } = useWallet();
+  return useQuery({
+    queryKey: ['pqkey', account?.owner],
+    enabled: !!account,
+    refetchInterval: (q) => (q.state.data ? false : 10_000),
+    queryFn: async () => {
+      const [registered, , , proven] = (await qore.readContract({
+        address: '0x0000000000000000000000000000000000000a02',
+        abi: [{ type: 'function', name: 'pqcKeyStatus', stateMutability: 'view', inputs: [{ type: 'address' }], outputs: [{ type: 'bool' }, { type: 'uint8' }, { type: 'bytes' }, { type: 'bool' }] }],
+        functionName: 'pqcKeyStatus',
+        args: [account!.owner],
+      })) as readonly [boolean, number, Hex, boolean];
+      return registered && proven;
+    },
+  });
 }
 
 /// The officers as QoreSeal recipients. Each one's ML-KEM-1024 key comes from QoreChain's KEM registry, its ML-DSA-87

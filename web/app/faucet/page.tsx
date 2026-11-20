@@ -1,35 +1,21 @@
 'use client';
 
-import { useState } from 'react';
 import Link from 'next/link';
-import { ArrowRight, Check, Copy, ExternalLink } from 'lucide-react';
+import { ArrowRight } from 'lucide-react';
 import { TxButton } from '@/components/TxButton';
 import { fmt } from '@/lib/format';
-import { QOR_FAUCET } from '@/lib/chains';
-import { RelaySetup, useRelayReady } from '@/components/RelaySetup';
-import { useWallet } from '@/lib/wallet';
+import { KeyNotice, useKeyReady } from '@/components/KeyNotice';
 import { useActions, useUser } from '@/lib/protocol';
 import { asset } from '@/lib/asset';
 
 export default function FaucetPage() {
   const user = useUser();
-  const { account } = useWallet();
   const address = user.address;
-  const qor = user.qor;
   const act = useActions();
-  const [copied, setCopied] = useState(false);
 
   const usdc = user.usdc;
-  // Both faucets stay on the page whatever the wallet holds: gas and mock dollars run out and get topped up
-  // again, so neither row is a step that is ever done. Minting only waits on gas when there is none.
-  const ready = useRelayReady();
-
-  const copyAddress = async () => {
-    if (!account) return;
-    await navigator.clipboard.writeText(account.address);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
-  };
+  // Minting is one signed message: no gas, no QOR. It only waits on the account's post-quantum key.
+  const ready = useKeyReady();
 
   return (
     <>
@@ -50,13 +36,12 @@ export default function FaucetPage() {
           </h1>
           <p className="mt-4 max-w-[640px] text-[15px] text-fg-muted">
             Agama runs on test money: mock USDC, as much as you like, free. Claim it here, then deposit it on Earn.
-            Your usual QoreX account works: after a one-time setup, Agama pays the gas of every action.
+            Every action is one signature in QoreX, and Agama pays the gas: you need no QOR.
           </p>
 
           <div className="mt-7 flex flex-wrap gap-8">
             <Stat label="Asset" value="Mock USDC" />
             <Stat label="Your USDC" value={usdc !== undefined ? fmt(usdc) : '-'} />
-            <Stat label="Your QOR" value={qor !== undefined ? (Number(qor) / 1e6).toFixed(3) : '-'} />
           </div>
         </div>
       </section>
@@ -66,34 +51,7 @@ export default function FaucetPage() {
         <div className="max-w-[1400px] mx-auto space-y-3">
           <h2 className="text-[13px] uppercase tracking-wider text-fg-muted mb-2">Faucets</h2>
 
-          <StepRow
-              icon="/logos/qor.png"
-              title="Get QOR for gas"
-              blurb="Sign in on QoreChain's dashboard faucet with your qor1 address. 100 QOR a day."
-            >
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={copyAddress}
-                  disabled={!account}
-                  className="inline-flex h-11 items-center gap-2 rounded-full bg-[#254839]/[0.08] px-4 text-[13px] text-[#254839] hover:bg-[#254839]/[0.16] disabled:opacity-40 whitespace-nowrap"
-                >
-                  {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                  {copied ? 'Copied!' : 'Copy address'}
-                </button>
-                <a
-                  href={QOR_FAUCET}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex h-11 items-center gap-2 rounded-full bg-[#254839] px-5 text-[14px] font-medium text-[#fdf8ed] hover:bg-[#1F3D31] whitespace-nowrap"
-                >
-                  dashboard.qorechain.io
-                  <ExternalLink className="h-4 w-4" />
-                </a>
-              </div>
-            </StepRow>
-
-          <RelaySetup className="mb-3" />
+          <KeyNotice className="mb-3" />
           <StepRow
             icon="/logos/usdc.svg"
             title="Mint mock USDC"
@@ -101,8 +59,8 @@ export default function FaucetPage() {
               !address
                 ? 'Connect QoreX first. 10,000 mock USDC per click, as often as you like.'
                 : !ready
-                  ? 'Finish the one-time setup above first. 10,000 mock USDC per click.'
-                  : '10,000 mock USDC per click, as often as you like. Agama pays the gas.'
+                  ? 'Your QoreX account needs its post-quantum key first (see above).'
+                  : '10,000 mock USDC per click, as often as you like. One signature, no gas.'
             }
           >
             <TxButton
