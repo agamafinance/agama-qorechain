@@ -7,3 +7,6 @@
 [submodule "contracts/lib/qorechain-asset-kit"]
 	path = contracts/lib/qorechain-asset-kit
 	url = https://github.com/qorechain/qorechain-asset-kit
+[submodule "contracts/lib/ETHDILITHIUM"]
+	path = contracts/lib/ETHDILITHIUM
+	url = https://github.com/ZKNoxHQ/ETHDILITHIUM
