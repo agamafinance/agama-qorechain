@@ -80,7 +80,7 @@ export function RelaySetup({ className = '' }: { className?: string }) {
             Lets Agama&apos;s relayer execute only the actions you sign, as you, on Agama&apos;s contracts.
             <button
               type="button"
-              disabled={busy || !s.window.live}
+              disabled={busy}
               onClick={authorize}
               className="mt-2 flex items-center gap-2 rounded-full bg-[#254839] px-4 py-2 text-[13px] text-[#fdf8ed] disabled:opacity-40"
             >
