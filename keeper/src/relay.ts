@@ -50,6 +50,8 @@ export async function scan(client: PublicClient, address: Address, from: number,
 }
 
 const nonceOf = (m: Hex) => slice(m, 12, 44);
+/// CCTP V2 header: version 4 | source 4 | destination 4 | nonce 32 | sender 32 | recipient 32 (bytes 76 to 108).
+const recipientOf = (m: Hex) => ("0x" + m.slice(2 + (76 + 12) * 2, 2 + 108 * 2)).toLowerCase();
 
 let wots: MerkleWots | undefined;
 const wotsSpent = new Set<number>();
@@ -95,6 +97,9 @@ export async function relayAll(): Promise<number> {
   // QoreChain to Ethereum: allocations, executed by the receiver, which subscribes them to the issuer.
   const out = await scan(qore as PublicClient, Q.messenger, state.qoreBlock, QORE_LOG_RANGE);
   for (const m of out.messages) {
+    // Only messages addressed to the live Ethereum messenger: after a migration the log scan still sees the ones
+    // its predecessors already delivered, and retrying those stalled a whole keeper run (FINDINGS 18).
+    if (recipientOf(m) !== String(E.messenger).toLowerCase()) continue;
     const used = await eth.readContract({ address: E.messenger, abi: messengerAbi(), functionName: "usedNonces", args: [nonceOf(m)] });
     if (used) continue;
     await send("sepolia", E.receiver, artifact("AgamaL1Receiver").abi, "relay", [m, await attestForEthereum(m)], {
