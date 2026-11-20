@@ -7,9 +7,8 @@ import { ConnectPill } from './ConnectPill';
 import { asset } from '@/lib/asset';
 
 const NAV = [
-  { href: '/portfolio', label: 'Portfolio' },
   { href: '/', label: 'Earn' },
-  { href: '/access', label: 'Access' },
+  { href: '/portfolio', label: 'Portfolio' },
   { href: '/data-room', label: 'Data room' },
   { href: '/faucet', label: 'Faucet' },
 ];
