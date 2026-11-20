@@ -3,7 +3,7 @@
  * production keeper (GitHub Actions) doing its job on the other side: compliance, data room, bridge, book, queue.
  * Nothing here plays the keeper, except the revocation, which is a compliance decision a person would take.
  *
- * Lenders are QoreX-style accounts (coin 118) of the funding mnemonic, indexes 10 to 17. Eight profiles, six
+ * Lenders are QoreX-style accounts (coin 118) of the funding mnemonic, indexes BATTERY_BASE (10) to +7. Eight profiles, six
  * eligible, two that compliance must refuse. Phases:
  *
  *   A  fund, register ML-DSA-87 keys, publish ML-KEM-1024 keys, file sealed dossiers, all in parallel
@@ -128,7 +128,7 @@ console.log(`\n== ${phase}`);
 const startedAt = Date.now();
 const lenders: Lender[] = await Promise.all(
   PROFILES.map(async (p, k) => {
-    const i = 10 + k;
+    const i = Number(process.env.BATTERY_BASE ?? 10) + k;
     const t = await treasury(i);
     const twin = toHex(fromBech32(t.native.address, 90).data) as Address;
     return { ...p, i, address: t.native.address, twin, keys: generateSealKeys(), client: undefined } as Lender;
@@ -272,9 +272,11 @@ await Promise.all(ok.map(async (l) => {
 const total = ok.reduce((a, l) => a + l.deposit, 0n);
 const snap1 = await read<any>(Q.vault, Vault, "snapshot");
 check("six concurrent deposits all minted agUSD", ok.every((l) => (l.shares ?? 0n) > 0n), ok.map((l) => `${formatUnits(l.shares!, 6).split(".")[0]}`).join(" / "));
+// Profit unlocks by the second, so the price read after the deposits is a hair above the one each paid at.
 const fair = ok.every((l) => {
   const value = (l.shares! * snap1.sharePrice) / 1_000_000n;
-  return value <= l.deposit && l.deposit - value < l.deposit / 1_000n + 2n;
+  const gap = value > l.deposit ? value - l.deposit : l.deposit - value;
+  return gap <= l.deposit / 1_000n + 2n;
 });
 check("each lender got agUSD worth what it paid, to 0.1%", fair, `price ${formatUnits(snap1.sharePrice, 6)}`);
 check("vault assets grew by the deposits", snap1.totalAssets - snap0.totalAssets >= (total * 999n) / 1_000n, `${usd(total)} in`);
@@ -378,10 +380,12 @@ await Promise.all(small.map(async (l) => {
 await Promise.all([
   ...large.map(async (l) => {
     const shares = (l.shares! * 9n) / 10n;
+    // What the claim is worth, priced before it is sent: a claim the buffer covers is paid, and deleted, inside the
+    // very transaction that makes it, so it cannot be read back afterwards.
+    l.owed = await read<bigint>(Q.vault, Vault, "previewRedeem", [shares]);
     await native(l, "queued exit", [call(l, Q.vault, Vault, "requestRedeem", [shares, l.twin, l.twin])], 1_200_000);
     const ids = await read<bigint[]>(Q.vault, Vault, "requestsOf", [l.twin]);
     l.claimId = ids[ids.length - 1];
-    l.owed = (await read<readonly [Address, Address, bigint, bigint]>(Q.vault, Vault, "redemptions", [l.claimId]))[3];
   }),
 ]);
 const instantPaid = await Promise.all(small.map(async (l) => (await read<bigint>(Q.usdc, Usdc, "balanceOf", [l.twin])) - usdcBefore.get(l.twin)!));
@@ -393,7 +397,8 @@ const paidIn = await until("the queue to be paid", async () => {
   return large.every((l) => l.claimId! < next);
 }, 30 * 60_000, 15_000);
 const queuedPaid = await Promise.all(large.map(async (l) => (await read<bigint>(Q.usdc, Usdc, "balanceOf", [l.twin])) - usdcBefore.get(l.twin)!));
-check("the keeper brought cash home and the queue paid every claim exactly", large.every((l, k) => queuedPaid[k] === l.owed), `${usd(queued)} in ${(paidIn / 1000).toFixed(0)}s`);
+// Paid at the price of the request block, which is at most a few seconds of unlocking from the preview.
+check("the keeper brought cash home and the queue paid every claim in full", large.every((l, k) => queuedPaid[k] >= l.owed! && queuedPaid[k] - l.owed! <= l.owed! / 10_000n + 2n), `${usd(queued)} in ${(paidIn / 1000).toFixed(0)}s`);
 const ids = large.map((l) => l.claimId!);
 check("three distinct claims in the vault's queue, all settled", new Set(ids.map(String)).size === 3, `claims #${ids.join(", #")}`);
 
