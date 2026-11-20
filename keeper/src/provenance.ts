@@ -6,13 +6,13 @@
  * means the officer's decision does not rest on trusting the node it reads from.
  */
 import { fromBech32, toBech32 } from "@cosmjs/encoding";
-import { decodeFunctionData, hexToBytes, keccak256, parseAbiItem, toHex, type Address, type Hex } from "viem";
+import { decodeFunctionData, hexToBytes, keccak256, parseAbi, parseAbiItem, toHex, type Address, type Hex } from "viem";
 import { qore } from "./net.js";
 import { verifyHybridTx } from "@qorechain/qoresign";
 import { artifact } from "./evm.js";
 import { CHAIN_ID, RPC, rest } from "./net.js";
 
-export type Provenance = { tx: string; signer: string; classical: boolean; postQuantum: boolean; lane?: "native" | "evm" | "relayed" };
+export type Provenance = { tx: string; signer: string; classical: boolean; postQuantum: boolean; lane?: "native" | "evm" | "relayed" | "pq-account" };
 
 const b64 = (s: string) => Uint8Array.from(Buffer.from(s, "base64"));
 export const bech32Of = (twin: Address) => toBech32("qor", hexToBytes(twin));
@@ -68,6 +68,22 @@ async function evmProvenance(access: Address, account: Address, dossierHash: Hex
   });
   const hit = logs.reverse().find((l) => l.args.dossierHash === dossierHash);
   if (!hit) return null;
+  // Filed by a PqAccount: the account checked its owner's ML-DSA-87 signature on chain (pqcVerify) in this very
+  // transaction, which its Executed event proves; the owner's key must be registered with proof of possession.
+  const factory = (await import("./config.js")).Q.pqAccountFactory as Address | undefined;
+  if (factory) {
+    const owner = (await qore.readContract({ address: factory, abi: parseAbi(["function ownerOf(address) view returns (address)"]), functionName: "ownerOf", args: [account] })) as Address;
+    if (owner !== "0x0000000000000000000000000000000000000000") {
+      const receipt = await qore.getTransactionReceipt({ hash: hit.transactionHash! });
+      const executed = receipt.status === "success" && receipt.logs.some((l) => l.address.toLowerCase() === account.toLowerCase() && l.topics[0] === keccak256(toHex("Executed(uint256,bytes32,address,uint256)")));
+      const [registered, , , proven] = (await qore.readContract({
+        address: "0x0000000000000000000000000000000000000a02",
+        abi: [{ type: "function", name: "pqcKeyStatus", stateMutability: "view", inputs: [{ type: "address" }], outputs: [{ type: "bool" }, { type: "uint8" }, { type: "bytes" }, { type: "bool" }] }],
+        functionName: "pqcKeyStatus", args: [owner],
+      })) as readonly [boolean, number, Hex, boolean];
+      return { tx: hit.transactionHash!, signer: bech32Of(owner), classical: executed, postQuantum: executed && registered && proven, lane: "pq-account" };
+    }
+  }
   const [registered, , , proven] = (await qore.readContract({
     address: "0x0000000000000000000000000000000000000a02",
     abi: [{ type: "function", name: "pqcKeyStatus", stateMutability: "view", inputs: [{ type: "address" }], outputs: [{ type: "bool" }, { type: "uint8" }, { type: "bytes" }, { type: "bool" }] }],

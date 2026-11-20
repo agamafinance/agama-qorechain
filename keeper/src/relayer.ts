@@ -18,6 +18,8 @@
  * It can act only inside the lender's grant (one message type, an expiry), the lender's window (blocks, count,
  * value), Agama's three contracts, and on an intent the lender signed.
  *
+ * PqAccounts (src/pqaccounts.ts, POST /relay/pq) replace both setup steps: the lender only signs messages.
+ *
  *   tsx src/relayer.ts        (listens on RELAYER_PORT, default 3047; the app proxies /api/relay)
  */
 import { createHash } from "node:crypto";
@@ -35,6 +37,7 @@ import { artifact } from "./evm.js";
 import { qorBalance, sendNative } from "./native.js";
 import { CHAIN_ID, REST, qore, rest } from "./net.js";
 import { ERC20_REGISTRY_TYPES } from "./erc20Msgs.js";
+import { submit } from "./pqaccounts.js";
 
 const PORT = Number(process.env.RELAYER_PORT ?? 3047);
 const CROSSVM = "/qorechain.crossvm.v1.MsgCrossVMCall";
@@ -217,6 +220,10 @@ if (import.meta.url === `file://${process.argv[1]}`) {
         const a = url.searchParams.get("account") ?? "";
         if (!/^qor1[02-9ac-hj-np-z]{38}$/.test(a)) return reply(res, 400, { error: "account" });
         return reply(res, 200, await status(a));
+      }
+      if (req.method === "POST" && url.pathname === "/relay/pq") {
+        const r = JSON.parse(await body(req));
+        return reply(res, 200, await serial(() => submit(r)));
       }
       if (req.method === "POST" && url.pathname === "/relay/act") {
         const { intent, signature, envelope } = JSON.parse(await body(req));
