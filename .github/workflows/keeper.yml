@@ -15,6 +15,12 @@ concurrency:
   group: keeper
   cancel-in-progress: false
 
+# Each run queues the next one before it ends, so the keeper never waits on GitHub's schedule, which starts runs
+# hours late or not at all. The hourly cron is only a safety net if the chain ever breaks.
+permissions:
+  actions: write
+  contents: read
+
 jobs:
   loop:
     runs-on: ubuntu-latest
@@ -48,3 +54,8 @@ jobs:
         with:
           path: keeper/state.json
           key: keeper-state-${{ github.run_id }}
+      - name: queue the next run
+        if: always()
+        run: gh workflow run keeper.yml --repo ${{ github.repository }}
+        env:
+          GH_TOKEN: ${{ github.token }}
