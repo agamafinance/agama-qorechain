@@ -6,12 +6,13 @@
  * means the officer's decision does not rest on trusting the node it reads from.
  */
 import { fromBech32, toBech32 } from "@cosmjs/encoding";
-import { decodeFunctionData, hexToBytes, keccak256, toHex, type Address, type Hex } from "viem";
+import { decodeFunctionData, hexToBytes, keccak256, parseAbiItem, toHex, type Address, type Hex } from "viem";
+import { qore } from "./net.js";
 import { verifyHybridTx } from "@qorechain/qoresign";
 import { artifact } from "./evm.js";
 import { CHAIN_ID, RPC, rest } from "./net.js";
 
-export type Provenance = { tx: string; signer: string; classical: boolean; postQuantum: boolean };
+export type Provenance = { tx: string; signer: string; classical: boolean; postQuantum: boolean; lane?: "native" | "evm" };
 
 const b64 = (s: string) => Uint8Array.from(Buffer.from(s, "base64"));
 export const bech32Of = (twin: Address) => toBech32("qor", hexToBytes(twin));
@@ -37,9 +38,31 @@ export async function dossierProvenance(access: Address, account: Address, dossi
     if (!hit) continue;
 
     const res = await verifyTx(t.txhash, t.tx.auth_info.signer_infos[0].public_key, signer);
-    return { tx: t.txhash, signer, ...res };
+    return { tx: t.txhash, signer, ...res, lane: "native" };
   }
-  return null;
+  return evmProvenance(access, account, dossierHash);
+}
+
+/**
+ * A dossier filed from QoreX's EVM provider (the path QoreX 0.4 supports): an EVM transaction, admitted by QoreChain
+ * only inside an EVM window that the account opened with a hybrid (secp256k1 + ML-DSA-87) signature, from an
+ * account whose ML-DSA-87 key is registered with proof of possession. The officer finds the filing in the registry's
+ * logs and checks the account's key status on chain.
+ */
+async function evmProvenance(access: Address, account: Address, dossierHash: Hex): Promise<Provenance | null> {
+  const head = await qore.getBlockNumber();
+  const logs = await qore.getLogs({
+    address: access, event: parseAbiItem("event DossierFiled(address indexed account, bytes32 dossierHash, uint256 size)"),
+    args: { account }, fromBlock: head > 9_000n ? head - 9_000n : 0n, toBlock: head,
+  });
+  const hit = logs.reverse().find((l) => l.args.dossierHash === dossierHash);
+  if (!hit) return null;
+  const [registered, , , proven] = (await qore.readContract({
+    address: "0x0000000000000000000000000000000000000a02",
+    abi: [{ type: "function", name: "pqcKeyStatus", stateMutability: "view", inputs: [{ type: "address" }], outputs: [{ type: "bool" }, { type: "uint8" }, { type: "bytes" }, { type: "bool" }] }],
+    functionName: "pqcKeyStatus", args: [account],
+  })) as readonly [boolean, number, Hex, boolean];
+  return { tx: hit.transactionHash!, signer: bech32Of(account), classical: true, postQuantum: registered && proven, lane: "evm" };
 }
 
 /** Both signatures of a single-signer native transaction, verified with QoreSign against the chain's keys. */
