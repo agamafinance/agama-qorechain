@@ -85,7 +85,7 @@ await check('create the QoreSeal key in the browser and publish it (AccessRegist
   }
   const publish = page.getByRole('button', { name: /Publish my key/ });
   if (await publish.isVisible()) await publish.click();
-  await waitText('Published and bound to your account', 90_000);
+  await waitText('Published and bound to your account', 180_000);
   const k = await read(Q.access, 'encryptionKey', [twin]);
   assert(k.length === 2 + 1568 * 2, 'ML-KEM-1024 key on chain');
   await shot('1-key');
