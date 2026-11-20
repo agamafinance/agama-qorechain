@@ -120,9 +120,10 @@ await check('mint mock USDC from the faucet', async () => {
   const before = await read(Q.usdc, 'balanceOf', [twin]);
   await page.goto(`${BASE}/faucet`);
   await page.getByRole('button', { name: /Get 10,000 USDC/ }).click();
-  for (let i = 0; i < 40 && (await read(Q.usdc, 'balanceOf', [twin])) === before; i++) await page.waitForTimeout(1500);
+  for (let i = 0; i < 80 && (await read(Q.usdc, 'balanceOf', [twin])) === before; i++) await page.waitForTimeout(1500);
   const after = await read(Q.usdc, 'balanceOf', [twin]);
-  assert(after - before === 10_000_000_000n, 'minted 10,000');
+  const toast = (await page.locator('[role=status]').allTextContents()).join(' | ');
+  assert(after - before === 10_000_000_000n, `minted 10,000 (toast: ${toast.slice(0, 160)})`);
   return `${Number(after) / 1e6} USDC`;
 });
 

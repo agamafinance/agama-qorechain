@@ -54,15 +54,22 @@ export async function signAndBroadcast(messages: EncodedMsg[], memo: string, gas
   const n = qorex();
   if (!n) throw new Error('QoreX is not installed');
   if (!hasCapability(n, 'signAndBroadcast')) throw new Error('Update QoreX: this version cannot sign and broadcast');
-  const res = await qorexSignAndBroadcast(
-    {
-      chainId: QORECHAIN_TESTNET_CHAIN_ID,
-      messages: messages.map((m) => ({ typeUrl: m.typeUrl, value: m.value })),
-      memo,
-      gasLimit: Math.min(gasLimit, 5_000_000),
-    },
-    { native: n },
-  );
+  const request = {
+    chainId: QORECHAIN_TESTNET_CHAIN_ID,
+    messages: messages.map((m) => ({ typeUrl: m.typeUrl, value: m.value })),
+    memo,
+    gasLimit: Math.min(gasLimit, 5_000_000),
+  };
+  let res: QorexResult;
+  try {
+    res = await qorexSignAndBroadcast(request, { native: n });
+  } catch (e) {
+    // Right after a transaction, a load-balanced node can still report the previous account sequence, and the next
+    // transaction is refused before anything happens. Nothing was spent: wait for the next blocks and ask once more.
+    if (!/sequence mismatch/i.test(String((e as Error)?.message ?? e))) throw e;
+    await new Promise((r) => setTimeout(r, 4_000));
+    res = await qorexSignAndBroadcast(request, { native: n });
+  }
   if (res.code !== 0) throw new Error(`The transaction failed on chain (code ${res.code}).`);
   if (res.shield === 'downgraded') throw new Error('QoreX reports the transaction landed without its ML-DSA-87 layer.');
   return res;
