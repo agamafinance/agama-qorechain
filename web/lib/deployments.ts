@@ -27,4 +27,8 @@ export const ETHEREUM = {
   messenger: e.messenger as Address,
   issuer: e.issuer as Address,
   receiver: e.receiver as Address,
+  /** The allocator's cumulative counters when the route moved to the hybrid (post-quantum) Ethereum leg. */
+  sentBase: BigInt((e as any).pq?.allocatorSentAtMigration ?? 0),
+  returnedBase: BigInt((e as any).pq?.allocatorReturnedAtMigration ?? 0),
+  pq: (e as any).pq as undefined | { mldsa44Verifier: Address; wotsVerifier: Address; lattice: Address; activeScheme: string },
 };

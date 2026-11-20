@@ -15,6 +15,7 @@ import { CreditVaults } from '@/components/CreditVaults';
 import { DASH, fmt, parse, raw, usd } from '@/lib/format';
 import { netApy, precisePrice, useActions, useActivity, useBook, useUser, useVault } from '@/lib/protocol';
 import { useWallet } from '@/lib/wallet';
+import { ETHEREUM } from '@/lib/deployments';
 
 type Side = 'deposit' | 'withdraw';
 
@@ -33,7 +34,7 @@ export default function EarnPage() {
 
   const inflight =
     book && totalSent !== undefined && totalReturned !== undefined
-      ? totalSent - book.received + (book.sentHome - totalReturned)
+      ? totalSent - ETHEREUM.sentBase - book.received + (book.sentHome - (totalReturned - ETHEREUM.returnedBase))
       : undefined;
 
   const price = vault?.sharePrice ?? 1_000_000n;

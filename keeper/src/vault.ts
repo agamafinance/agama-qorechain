@@ -37,7 +37,14 @@ export async function navOfBook() {
     atQ<bigint>("totalSent"),
     atQ<bigint>("totalReturned"),
   ]);
-  return position + (sent - received) + (sentHome - returned);
+  const { sent: s0, returned: r0 } = bridgeBase();
+  return position + (sent - s0 - received) + (sentHome - (returned - r0));
+}
+
+/// The allocator's counters are cumulative across receivers, the receiver's start at zero: the totals at the
+/// migration to the hybrid Ethereum leg are subtracted, so the route's in-flight figures compare like with like.
+export function bridgeBase() {
+  return { sent: BigInt(E.pq?.allocatorSentAtMigration ?? 0), returned: BigInt(E.pq?.allocatorReturnedAtMigration ?? 0) };
 }
 
 /// The buffer the vault must keep: its reserve floor, rounded up the way `pushToStrategy` rounds it, plus a margin.
@@ -77,7 +84,8 @@ export async function inbound() {
     readE<bigint>(E.receiver, ReceiverAbi, "totalSentHome"),
     readQ<bigint>(Q.allocator, AllocatorAbi, "totalReturned"),
   ]);
-  return sentHome > returned ? sentHome - returned : 0n;
+  const back = returned - bridgeBase().returned;
+  return sentHome > back ? sentHome - back : 0n;
 }
 
 /// Whether the vault has something for the keeper right now: cash above the floor to send, a queue the idle cash

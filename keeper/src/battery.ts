@@ -447,7 +447,8 @@ check("totalAssets = idle + deployed - pending - unvested", fin.totalAssets === 
 check("the queue is empty", fin.queueLength === 0n && fin.pending === 0n);
 const [sentAll, retAll] = await Promise.all([read<bigint>(Q.allocator, Allocator, "totalSent"), read<bigint>(Q.allocator, Allocator, "totalReturned")]);
 const [recvAll, homeAll] = await Promise.all(["totalReceived", "totalSentHome"].map((f) => eth.readContract({ address: E.receiver, abi: Receiver, functionName: f }))) as [bigint, bigint];
-check("bridge at rest: everything sent was received, everything sent home returned", sentAll === recvAll && homeAll === retAll, `${usd(sentAll)} out, ${usd(retAll)} back`);
+const base = (await import("./vault.js")).bridgeBase();
+check("bridge at rest: everything sent was received, everything sent home returned", sentAll - base.sent === recvAll && homeAll === retAll - base.returned, `${usd(sentAll)} out, ${usd(retAll)} back`);
 const { navOfBook } = await import("./vault.js");
 const nav = await navOfBook();
 const gap = nav > fin.deployed ? nav - fin.deployed : fin.deployed - nav;
