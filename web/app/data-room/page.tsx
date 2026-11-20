@@ -56,13 +56,18 @@ export default function DataRoomPage() {
   }, [account?.evm, room.data?.current?.epoch]);
 
   const current = room.data?.current;
+  // Members do not click anything: the tape opens by itself when this browser holds their key.
+  useEffect(() => {
+    if (account && current?.isMember && current.distribution && !epochKey && !err && loadKeys(account.evm)) unlock();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [account?.evm, current?.epoch, current?.distribution]);
   const latest = room.data?.reports.find((r) => current && r.epoch === current.epoch && r.blob);
 
   const unlock = () => {
     setErr(undefined);
     try {
       const keys = loadKeys(account!.evm);
-      if (!keys) throw new Error('No QoreSeal key in this browser: create or restore it on Access.');
+      if (!keys) throw new Error('No QoreSeal key in this browser: restore it from your backup on Portfolio.');
       const ek = openEpochKey({ chainId: SEAL.chainId, purpose: SEAL.epoch, envelope: hexToBytes(current!.distribution!), keys });
       setEpochKey(ek);
       if (latest?.blob) {
@@ -79,8 +84,8 @@ export default function DataRoomPage() {
     <>
       <Hero art="/logos/book.svg" title="The data room">
         <p className="mt-4 max-w-[680px] text-[15px] text-fg-muted">
-          The loan tape behind agUSD: every facility, its collateral, its rate and whether it pays. It sits on
-          QoreChain, encrypted to approved lenders and the auditor with ML-KEM-1024, and you decrypt it here.
+          Every loan behind agUSD: who borrowed, against what, at what rate, and whether they pay. Only verified
+          investors and the auditor can read it; it opens right here, on your device.
         </p>
         <div className="mt-7 flex flex-wrap gap-8">
           <Stat label="Epoch" value={current ? String(current.epoch) : '-'} sub="A new key at every membership change" />
@@ -107,12 +112,12 @@ export default function DataRoomPage() {
               <Lock className="h-6 w-6 text-fg-muted" aria-hidden />
               <p className="flex-1 text-[14px] text-fg-muted">
                 {user.member?.status === 'Approved'
-                  ? 'You are approved: the next epoch, started within minutes, includes your key.'
-                  : 'The tape is sealed to approved lenders. Apply on Access; once approved, the next epoch includes you.'}
+                  ? 'You are verified: the next key rotation, within minutes, includes you.'
+                  : 'The loan tape is encrypted for verified investors only. Get verified on Earn to read it.'}
               </p>
               {user.member?.status !== 'Approved' && (
-                <Link href="/access" className="rounded-full bg-[#254839] px-5 py-2.5 text-[14px] text-[#fdf8ed]">
-                  Get access
+                <Link href="/" className="rounded-full bg-[#254839] px-5 py-2.5 text-[14px] text-[#fdf8ed]">
+                  Get verified
                 </Link>
               )}
             </div>

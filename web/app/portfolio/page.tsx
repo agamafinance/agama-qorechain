@@ -6,6 +6,7 @@ import { card, primaryBtn } from '@/components/ui';
 import { fmt, usd } from '@/lib/format';
 import { qoreAddress } from '@/lib/chains';
 import { useWallet } from '@/lib/wallet';
+import { backupFile, importSeed, loadKeys } from '@/lib/sealing';
 import { useActions, useRequests, useUser, useVault } from '@/lib/protocol';
 import { asset } from '@/lib/asset';
 
@@ -58,7 +59,10 @@ export default function PortfolioPage() {
               >
                 {user.account?.address}
               </a>
-              <AccessBadge status={user.member?.status} expiresAt={user.member?.expiresAt} />
+              <div className="flex flex-wrap items-center gap-2">
+                <AccessBadge status={user.member?.status} expiresAt={user.member?.expiresAt} />
+                <KeyBackup evm={user.address} />
+              </div>
             </div>
 
             <div className="mt-4 space-y-3">
@@ -73,10 +77,8 @@ export default function PortfolioPage() {
               />
               {user.usdc === 0n && user.agusd === 0n && open.length === 0 && (
                 <p className="rounded-2xl bg-[#fdfaf1] px-5 py-4 text-[14px] text-fg-muted shadow-[0_1px_3px_rgba(20,50,35,0.06)]">
-                  Nothing here yet. Get mock USDC on the{' '}
-                  <Link href="/faucet" className="underline underline-offset-2">Faucet</Link>, then deposit
-                  it on <Link href="/" className="underline underline-offset-2">Earn</Link> and the share
-                  price does the rest.
+                  Nothing here yet. Get verified and deposit on{' '}
+                  <Link href="/" className="underline underline-offset-2">Earn</Link>; the share price does the rest.
                 </p>
               )}
             </div>
@@ -130,6 +132,59 @@ export default function PortfolioPage() {
   );
 }
 
+/// The encryption key lives in this browser. Backing it up is the one thing the lender should do once; on another
+/// browser, restoring it is what opens the letter and the data room again.
+function KeyBackup({ evm }: { evm: `0x${string}` }) {
+  const [keys, setKeys] = useState(() => (typeof window === 'undefined' ? null : loadKeys(evm)));
+  const [restoring, setRestoring] = useState(false);
+  const [seed, setSeed] = useState('');
+  const [err, setErr] = useState<string>();
+  if (!keys) {
+    return restoring ? (
+      <span className="mt-3 inline-flex items-center gap-2">
+        <input
+          value={seed}
+          onChange={(e) => setSeed(e.target.value)}
+          placeholder="Paste the seed (0x…) from your backup"
+          className="w-[300px] rounded-full border border-[#254839]/20 bg-white px-3 py-1 text-[12px] outline-none"
+        />
+        <button
+          type="button"
+          className="rounded-full bg-[#254839] px-3 py-1 text-[12px] text-[#fdf8ed]"
+          onClick={() => {
+            try {
+              setKeys(importSeed(evm, seed));
+              setErr(undefined);
+            } catch {
+              setErr('Not a valid backup');
+            }
+          }}
+        >
+          Restore
+        </button>
+        {err && <span className="text-[12px] text-[#9b2c2c]">{err}</span>}
+      </span>
+    ) : (
+      <button type="button" onClick={() => setRestoring(true)} className="mt-3 rounded-full bg-[#254839]/[0.08] px-3 py-1 text-[12px] text-[#254839] hover:bg-[#254839]/[0.16]">
+        Restore my encryption key
+      </button>
+    );
+  }
+  const download = () => {
+    const url = URL.createObjectURL(backupFile(evm, keys));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `agama-key-${evm.slice(2, 8)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+  return (
+    <button type="button" onClick={download} className="mt-3 rounded-full bg-[#254839]/[0.08] px-3 py-1 text-[12px] text-[#254839] hover:bg-[#254839]/[0.16]">
+      Back up my encryption key
+    </button>
+  );
+}
+
 function AccessBadge({ status, expiresAt }: { status?: string; expiresAt?: bigint }) {
   if (!status) return null;
   const text =
@@ -138,11 +193,11 @@ function AccessBadge({ status, expiresAt }: { status?: string; expiresAt?: bigin
       : status === 'Pending'
         ? 'Application in review'
         : status === 'None'
-          ? 'Not yet approved to hold agUSD'
+          ? 'Not verified yet: get verified on Earn'
           : `Access ${status.toLowerCase()}`;
   return (
     <Link
-      href="/access"
+      href="/"
       className={`mt-3 inline-flex rounded-full px-3 py-1 text-[12px] ${status === 'Approved' ? 'bg-[#2f7d5b]/10 text-[#2f7d5b]' : 'bg-[#254839]/[0.08] text-[#254839]'}`}
     >
       {text}
