@@ -7,7 +7,7 @@ import { fmt, usd } from '@/lib/format';
 import { qoreAddress } from '@/lib/chains';
 import { useWallet } from '@/lib/wallet';
 import { backupFile, importSeed, loadKeys, unlockKeys } from '@/lib/sealing';
-import { personalSign } from '@/lib/qorex';
+import { keySignature } from '@/lib/qorex';
 import { useActions, useRequests, useUser, useVault } from '@/lib/protocol';
 import { asset } from '@/lib/asset';
 
@@ -171,7 +171,7 @@ function KeyBackup({ evm }: { evm: `0x${string}` }) {
           type="button"
           onClick={async () => {
             try {
-              setKeys(await unlockKeys(evm, (m) => personalSign(evm, m)));
+              setKeys(await unlockKeys(evm, keySignature));
             } catch {
               setErr('Signature declined');
             }

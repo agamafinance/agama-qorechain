@@ -6,6 +6,7 @@ import { ArrowRight, Check, Copy, ExternalLink } from 'lucide-react';
 import { TxButton } from '@/components/TxButton';
 import { fmt } from '@/lib/format';
 import { QOR_FAUCET } from '@/lib/chains';
+import { RelaySetup, useRelayReady } from '@/components/RelaySetup';
 import { useWallet } from '@/lib/wallet';
 import { useActions, useUser } from '@/lib/protocol';
 import { asset } from '@/lib/asset';
@@ -21,7 +22,7 @@ export default function FaucetPage() {
   const usdc = user.usdc;
   // Both faucets stay on the page whatever the wallet holds: gas and mock dollars run out and get topped up
   // again, so neither row is a step that is ever done. Minting only waits on gas when there is none.
-  const noGas = !!address && qor !== undefined && qor === 0n;
+  const ready = useRelayReady();
 
   const copyAddress = async () => {
     if (!account) return;
@@ -49,8 +50,7 @@ export default function FaucetPage() {
           </h1>
           <p className="mt-4 max-w-[640px] text-[15px] text-fg-muted">
             Agama runs on test money: mock USDC, as much as you like, free. Claim it here, then deposit it on Earn.
-            You also need a little QOR for fees, on an Ethereum (coin 60) account in QoreX: Your accounts → Add an
-            Ethereum account.
+            Your usual QoreX account works: after a one-time setup, Agama pays the gas of every action.
           </p>
 
           <div className="mt-7 flex flex-wrap gap-8">
@@ -93,21 +93,22 @@ export default function FaucetPage() {
               </div>
             </StepRow>
 
+          <RelaySetup className="mb-3" />
           <StepRow
             icon="/logos/usdc.svg"
             title="Mint mock USDC"
             blurb={
               !address
                 ? 'Connect QoreX first. 10,000 mock USDC per click, as often as you like.'
-                : noGas
-                  ? 'Get QOR above first: minting is a transaction. 10,000 mock USDC per click.'
-                  : '10,000 mock USDC per click, as often as you like.'
+                : !ready
+                  ? 'Finish the one-time setup above first. 10,000 mock USDC per click.'
+                  : '10,000 mock USDC per click, as often as you like. Agama pays the gas.'
             }
           >
             <TxButton
               fit
               label="Get 10,000 USDC"
-              disabled={!address || noGas}
+              disabled={!address || !ready}
               action={act.faucet}
             />
           </StepRow>

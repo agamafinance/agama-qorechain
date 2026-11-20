@@ -12,7 +12,7 @@ import type { SealKeyPair } from '@qorechain/qoreseal';
 import { primaryBtn, Status } from './ui';
 import { useActions, useDecision, useOfficerKeys, useUser } from '@/lib/protocol';
 import { importSeed, loadKeys, openLetter, sealDossier, unlockKeys } from '@/lib/sealing';
-import { personalSign } from '@/lib/qorex';
+import { keySignature } from '@/lib/qorex';
 import { useWallet } from '@/lib/wallet';
 import { reason } from '@/lib/protocol';
 
@@ -65,7 +65,7 @@ export function Onboarding() {
       let k = keys;
       if (!k || (onChainKey && toHex(k.mlkemPublicKey) !== onChainKey)) {
         setStep('Unlocking your encryption key in QoreX');
-        k = await unlockKeys(account.evm, (m) => personalSign(account.evm, m));
+        k = await unlockKeys(account.evm, keySignature);
         setKeys(k);
       }
       if (!onChainKey || onChainKey !== toHex(k.mlkemPublicKey)) {
@@ -118,7 +118,7 @@ export function Onboarding() {
             className="underline underline-offset-2"
             onClick={async () => {
               try {
-                setKeys(await unlockKeys(account.evm, (m) => personalSign(account.evm, m)));
+                setKeys(await unlockKeys(account.evm, keySignature));
               } catch (e) {
                 setErr(reason(e));
               }
@@ -205,7 +205,7 @@ export function Onboarding() {
               'Get verified'
             )}
           </button>
-          <p className="mt-2 text-center text-[12px] text-fg-muted">A few quick approvals in QoreX, from an Ethereum (coin 60) account.</p>
+          <p className="mt-2 text-center text-[12px] text-fg-muted">A few quick approvals in QoreX, from your QoreX account.</p>
           <Status error={err} />
         </>
       )}

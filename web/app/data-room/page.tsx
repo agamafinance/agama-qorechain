@@ -15,7 +15,7 @@ import { qoreTx } from '@/lib/chains';
 import { usd } from '@/lib/format';
 import { kb, useDataRoom, useUser, type RoomReport } from '@/lib/protocol';
 import { loadKeys, SEAL, unlockKeys } from '@/lib/sealing';
-import { personalSign } from '@/lib/qorex';
+import { keySignature } from '@/lib/qorex';
 import { useWallet } from '@/lib/wallet';
 
 type Loan = {
@@ -68,7 +68,7 @@ export default function DataRoomPage() {
     setErr(undefined);
     try {
       // No key in this browser yet: one QoreX signature derives it (the same key on any device).
-      const keys = loadKeys(account!.evm) ?? (await unlockKeys(account!.evm, (m) => personalSign(account!.evm, m)));
+      const keys = loadKeys(account!.evm) ?? (await unlockKeys(account!.evm, keySignature));
       const ek = openEpochKey({ chainId: SEAL.chainId, purpose: SEAL.epoch, envelope: hexToBytes(current!.distribution!), keys });
       setEpochKey(ek);
       if (latest?.blob) {

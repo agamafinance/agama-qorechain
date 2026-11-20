@@ -153,7 +153,7 @@ export async function act(intentText: string, signature: MessageSignature, envel
     case "fileDossier": {
       if (!envelope || createHash("sha256").update(Buffer.from(envelope.slice(2), "hex")).digest("hex") !== i.data) throw new Error("the envelope is not the one signed");
       inner.push(call(i.account, Q.access, ABI.access, "fileDossier", [envelope]));
-      gas = 900_000 + Math.ceil(((envelope.length - 2) / 2) * 700);
+      gas = Math.max(4_800_000, 1_500_000 + Math.ceil(((envelope.length - 2) / 2) * 1_100));
       break;
     }
   }

@@ -24,7 +24,7 @@ import { useToasts } from '@/components/Toasts';
 import { COSMOS_CHAIN_ID, l1, qore, REST } from './chains';
 import { verifyRecipientCard, type RecipientCard, type SealRecipient } from '@qorechain/qoreseal';
 import cards from '../../deployments/recipient-cards.json';
-import { coin60Hint, walletClient } from './qorex';
+import { signArbitrary } from './qorex';
 import { useWallet } from './wallet';
 
 const REFRESH = 8_000;
@@ -446,54 +446,80 @@ export function reason(e: unknown): string {
   return err?.shortMessage ?? err?.message ?? 'The transaction failed.';
 }
 
+/// What the lender has set up for Agama's relayer: an EVM access window (opened in QoreX) and the grant.
+export type RelayStatus = { relayer: string; grant: string | null; window: { live: boolean; remainingTxs?: string; remainingBlocks?: string }; pqKey: boolean };
+
+export function useRelayStatus() {
+  const { account } = useWallet();
+  return useQuery({
+    queryKey: ['relay', account?.address],
+    enabled: !!account,
+    refetchInterval: 8_000,
+    queryFn: async (): Promise<RelayStatus> => {
+      const r = await fetch(`${BASE}/api/relay/status?account=${account!.address}`, { cache: 'no-store' });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error ?? `relayer ${r.status}`);
+      return j;
+    },
+  });
+}
+
+const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? '/qorechain';
+const sha256Hex = async (h: Hex) => {
+  const b = Uint8Array.from(h.slice(2).match(/../g)!.map((x) => parseInt(x, 16)));
+  return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', b)), (x) => x.toString(16).padStart(2, '0')).join('');
+};
+
 export function useActions() {
   const qc = useQueryClient();
   const toast = useToasts();
   const { account } = useWallet();
 
-  /// One EVM transaction from the lender's QoreX account. QoreX shows the call, opens the EVM window it needs in the
-  /// same approval (hybrid-signed, scoped to this contract), signs and sends.
-  async function send(title: string, done: string, to: Address, abi: any, functionName: string, args: unknown[] = []) {
+  /// One action: the lender signs an intent in QoreX (secp256k1 + ML-DSA-87), Agama's relayer verifies it against
+  /// the lender's on-chain key and executes it as the lender. No gas for the lender.
+  async function send(title: string, done: string, action: string, extra: { amount?: bigint; data?: string } = {}, envelope?: Hex) {
     if (!account) throw new Error('Connect QoreX first.');
     const id = toast.start(title);
     try {
-      const wallet = walletClient(account.evm);
-      const hash = await wallet.writeContract({ address: to, abi, functionName, args, account: account.evm, chain: wallet.chain } as any);
-      toast.hash(id, hash);
-      const receipt = await qore.waitForTransactionReceipt({ hash, timeout: 120_000 });
-      if (receipt.status !== 'success') throw new Error('The transaction reverted on chain.');
+      const nonce = Array.from(crypto.getRandomValues(new Uint8Array(12)), (b) => b.toString(16).padStart(2, '0')).join('');
+      const intent = JSON.stringify({
+        agama: 'action-v1',
+        chainId: COSMOS_CHAIN_ID,
+        account: account.address,
+        action,
+        ...(extra.amount !== undefined ? { amount: extra.amount.toString() } : {}),
+        ...(extra.data ? { data: extra.data } : {}),
+        nonce,
+        expires: Math.floor(Date.now() / 1000) + 300,
+      });
+      const signature = await signArbitrary(account.address, intent);
+      const r = await fetch(`${BASE}/api/relay/act`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ intent, signature, envelope }) });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error ?? `relayer ${r.status}`);
+      toast.hash(id, j.txHash);
       toast.done(id, done);
       // The next block carries the new state; refetch a moment later too, for a node that is a block behind.
       await qc.invalidateQueries();
-      setTimeout(() => void qc.invalidateQueries(), 2_500);
-      return hash;
+      for (const ms of [2_500, 6_000, 12_000]) setTimeout(() => void qc.invalidateQueries(), ms);
+      return j.txHash as string;
     } catch (e) {
-      const msg = coin60Hint(String((e as Error)?.message ?? e)) ?? reason(e);
-      toast.fail(id, msg);
-      throw new Error(msg);
+      toast.fail(id, reason(e));
+      throw new Error(reason(e));
     }
   }
 
   return {
-    faucet: () => send('Mock USDC from the faucet', '10,000 mock USDC is in your wallet.', QORECHAIN.usdc, MockUSDCAbi, 'faucet'),
-    /// The approval only when it is missing (once, for good), then the deposit.
-    deposit: async (amount: bigint, allowance: bigint) => {
-      if (allowance < amount) {
-        await send('Allow the vault to take USDC', 'Approved, once for good.', QORECHAIN.usdc, MockUSDCAbi, 'approve', [QORECHAIN.vault, maxUint256]);
-      }
-      return send(`Deposit ${fmt(amount)} USDC`, 'agUSD minted. It is earning from this block.', QORECHAIN.vault, AgUSDAbi, 'deposit', [amount, account!.evm]);
-    },
-    redeem: (shares: bigint) =>
-      send(`Withdraw ${fmt(shares)} agUSD`, 'USDC is in your wallet.', QORECHAIN.vault, AgUSDAbi, 'redeem', [shares, account!.evm, account!.evm]),
-    requestRedeem: (shares: bigint) =>
-      send(`Queue ${fmt(shares)} agUSD`, 'Priced now, paid as cash comes home. See Portfolio.', QORECHAIN.vault, AgUSDAbi, 'requestRedeem', [shares, account!.evm, account!.evm]),
-    settle: () => send('Push the queue', 'Paid what the cash covers.', QORECHAIN.vault, AgUSDAbi, 'settleRedemptions', [16n]),
+    faucet: () => send('Mock USDC from the faucet', '10,000 mock USDC is in your wallet.', 'faucet'),
+    /// The approval, when it is missing, goes in the same transaction as the deposit.
+    deposit: (amount: bigint, _allowance?: bigint) => send(`Deposit ${fmt(amount)} USDC`, 'agUSD minted. It is earning from this block.', 'deposit', { amount }),
+    redeem: (shares: bigint) => send(`Withdraw ${fmt(shares)} agUSD`, 'USDC is in your wallet.', 'redeem', { amount: shares }),
+    requestRedeem: (shares: bigint) => send(`Queue ${fmt(shares)} agUSD`, 'Priced now, paid as cash comes home. See Portfolio.', 'requestRedeem', { amount: shares }),
+    settle: () => send('Push the queue', 'Paid what the cash covers.', 'settle'),
     /// Binds the lender's ML-KEM-1024 key to its account in the AccessRegistry, which refuses an account without a
-    /// proven ML-DSA-87 key. (QoreChain's own KEM registry takes keys from the wallet itself, not from a website.)
-    publishKey: (mlkemPublicKey: Uint8Array) =>
-      send('Publish your encryption key', 'Your ML-KEM-1024 key is on chain.', QORECHAIN.access, AccessRegistryAbi, 'publishEncryptionKey', [toHex(mlkemPublicKey)]),
-    fileDossier: (envelope: Hex) =>
-      send('File your sealed application', 'Filed. Compliance reviews it within a minute.', QORECHAIN.access, AccessRegistryAbi, 'fileDossier', [envelope]),
+    /// proven ML-DSA-87 key.
+    publishKey: (mlkemPublicKey: Uint8Array) => send('Publish your encryption key', 'Your ML-KEM-1024 key is on chain.', 'publishKey', { data: toHex(mlkemPublicKey) }),
+    fileDossier: async (envelope: Hex) =>
+      send('File your sealed application', 'Filed. Compliance reviews it within a minute.', 'fileDossier', { data: await sha256Hex(envelope) }, envelope),
   };
 }
 

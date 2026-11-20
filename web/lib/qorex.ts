@@ -1,27 +1,28 @@
 /**
- * QoreX, QoreChain's wallet, through its official integration types (@qorechain/qorex-types).
+ * QoreX, QoreChain's wallet, through its official integration types (@qorechain/qorex-types), on the lender's usual
+ * QoreX account.
  *
- * Agama talks to its contracts the way QoreX supports today: EVM transactions from the wallet's EIP-1193 provider
- * (`window.qorex.evm`), from an Ethereum-style (coin 60) account whose ML-DSA-87 key is registered. QoreChain admits
- * such a transaction only inside an EVM window, and QoreX opens one in the same approval, hybrid-signed
- * (secp256k1 + ML-DSA-87) and scoped to the contract being called. QoreX 0.4 refuses to sign the cross-VM messages
- * Agama used before (it will not sign what it cannot display), which is why the app moved to this path.
- *
- * The native provider is still read for the account's `qor1` address.
+ * QoreX signs only what it can show its user. It shows authz grants and arbitrary messages, but it has no screen for
+ * MsgCrossVMCall, the message a QoreChain account calls an EVM contract with. So Agama works this way:
+ *   - once: the lender opens an EVM access window in QoreX, and authorizes Agama's relayer (an authz grant for
+ *     MsgCrossVMCall, with an expiry, signed and broadcast by QoreX, hybrid secp256k1 + ML-DSA-87);
+ *   - each action: the lender signs an intent with signArbitrary (ADR-36 secp256k1 + ML-DSA-87); the relayer checks
+ *     it against the lender's on-chain ML-DSA-87 key and executes it as the lender (MsgExec), paying the gas.
  */
-import { getQorexNative, QOREX_DOWNLOAD_URLS, type QorexNativeProvider } from '@qorechain/qorex-types';
-import { createWalletClient, custom, getAddress, type Address, type Hex, type WalletClient } from 'viem';
-import { diana } from './chains';
+import {
+  getQorexNative,
+  hasCapability,
+  qorexSignAndBroadcast,
+  QOREX_DOWNLOAD_URLS,
+  QORECHAIN_TESTNET_CHAIN_ID,
+  type QorexNativeProvider,
+  type QorexSignAndBroadcastResult,
+} from '@qorechain/qorex-types';
+import { bytesToHex, toHex, type Hex } from 'viem';
 
+export type QorexResult = QorexSignAndBroadcastResult;
 export const QOREX_DOWNLOAD = QOREX_DOWNLOAD_URLS;
-
-type Eip1193 = { request(args: { method: string; params?: unknown }): Promise<unknown>; isQoreX?: boolean };
-
-export function qorexEvm(): Eip1193 | null {
-  if (typeof window === 'undefined') return null;
-  const evm = (window as unknown as { qorex?: { evm?: Eip1193 } }).qorex?.evm;
-  return evm && evm.isQoreX ? evm : null;
-}
+const CHAIN = QORECHAIN_TESTNET_CHAIN_ID;
 
 export function qorex(): QorexNativeProvider | null {
   if (typeof window === 'undefined') return null;
@@ -29,78 +30,103 @@ export function qorex(): QorexNativeProvider | null {
 }
 
 /** Waits briefly for the extension to inject itself. */
-export async function waitForQorex(ms = 1500): Promise<Eip1193 | null> {
+export async function waitForQorex(ms = 1500): Promise<QorexNativeProvider | null> {
   const start = Date.now();
   while (Date.now() - start < ms) {
-    const e = qorexEvm();
-    if (e) return e;
+    const n = qorex();
+    if (n) return n;
     await new Promise((r) => setTimeout(r, 100));
   }
-  return qorexEvm();
+  return qorex();
 }
 
 export type Account = { address: string; evm: Hex; name: string };
 
-const BECH32 = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
-function polymod(values: number[]) {
-  const G = [0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3];
-  let chk = 1;
-  for (const v of values) {
-    const b = chk >> 25;
-    chk = ((chk & 0x1ffffff) << 5) ^ v;
-    for (let i = 0; i < 5; i++) if ((b >> i) & 1) chk ^= G[i];
-  }
-  return chk;
-}
-/** The account's qor1 address: the same 20 bytes as its 0x address. */
-export function toQor(evm: Hex): string {
-  const bytes = evm.slice(2).match(/../g)!.map((h) => parseInt(h, 16));
-  const words: number[] = [];
-  let acc = 0, bits = 0;
-  for (const b of bytes) {
-    acc = (acc << 8) | b;
-    bits += 8;
-    while (bits >= 5) {
-      bits -= 5;
-      words.push((acc >> bits) & 31);
-    }
-  }
-  if (bits > 0) words.push((acc << (5 - bits)) & 31);
-  const hrp = 'qor';
-  const expand = [...[...hrp].map((c) => c.charCodeAt(0) >> 5), 0, ...[...hrp].map((c) => c.charCodeAt(0) & 31)];
-  const mod = polymod([...expand, ...words, 0, 0, 0, 0, 0, 0]) ^ 1;
-  const checksum = Array.from({ length: 6 }, (_, i) => (mod >> (5 * (5 - i))) & 31);
-  return hrp + '1' + [...words, ...checksum].map((w) => BECH32[w]).join('');
-}
-
 export async function connectQorex(): Promise<Account> {
-  const e = await waitForQorex();
-  if (!e) throw new Error('QoreX is not installed');
-  const [address] = (await e.request({ method: 'eth_requestAccounts' })) as string[];
-  if (!address) throw new Error('QoreX did not share an account');
-  const evm = getAddress(address) as Hex;
-  return { address: toQor(evm), evm, name: 'QoreX' };
+  const n = await waitForQorex();
+  if (!n) throw new Error('QoreX is not installed');
+  await n.enable(CHAIN);
+  const key = await n.getKey(CHAIN);
+  // The EVM side sees the same 20 bytes as a 0x address.
+  return { address: key.bech32Address, evm: toHex(Uint8Array.from(key.address)), name: key.name };
 }
 
-/** A viem wallet client on QoreX's EVM provider, for the connected account. */
-export function walletClient(account: Address): WalletClient {
-  const e = qorexEvm();
-  if (!e) throw new Error('QoreX is not installed');
-  return createWalletClient({ account, chain: diana, transport: custom(e) });
-}
-
-/** Asks QoreX to sign `message` (EIP-191). Used once, to derive the lender's encryption key. */
-export async function personalSign(account: Address, message: string): Promise<Hex> {
-  const e = qorexEvm();
-  if (!e) throw new Error('QoreX is not installed');
-  const hex = ('0x' + Array.from(new TextEncoder().encode(message), (b) => b.toString(16).padStart(2, '0')).join('')) as Hex;
-  return (await e.request({ method: 'personal_sign', params: [hex, account] })) as Hex;
-}
-
-/** QoreX's explanation when the active account cannot send EVM transactions, turned into an instruction. */
-export function coin60Hint(message: string): string | null {
-  if (/coin-60|coin 60|coin-118/i.test(message)) {
-    return 'Switch QoreX to an Ethereum account: Your accounts → "Add an Ethereum account (coin 60)", select it, send it a little QOR, then try again.';
+/** Hands `messages` to QoreX as one transaction: it shows them, hybrid-signs and broadcasts. */
+export async function signAndBroadcast(messages: { typeUrl: string; value: Uint8Array }[], memo: string, gasLimit: number): Promise<QorexResult> {
+  const n = qorex();
+  if (!n) throw new Error('QoreX is not installed');
+  if (!hasCapability(n, 'signAndBroadcast')) throw new Error('Update QoreX: this version cannot sign and broadcast');
+  const request = { chainId: CHAIN, messages, memo, gasLimit: Math.min(gasLimit, 5_000_000) };
+  let res: QorexResult;
+  try {
+    res = await qorexSignAndBroadcast(request, { native: n });
+  } catch (e) {
+    // A load-balanced node can still report the previous account sequence right after a transaction. Nothing was
+    // spent: wait for the next blocks and ask once more.
+    if (!/sequence mismatch/i.test(String((e as Error)?.message ?? e))) throw e;
+    await new Promise((r) => setTimeout(r, 4_000));
+    res = await qorexSignAndBroadcast(request, { native: n });
   }
-  return null;
+  if (res.code !== 0) throw new Error(`The transaction failed on chain (code ${res.code}).`);
+  if (res.shield === 'downgraded') throw new Error('QoreX reports the transaction landed without its ML-DSA-87 layer.');
+  return res;
+}
+
+/** QoreX's message signature (message-signing-v1): ADR-36 secp256k1 and ML-DSA-87 over `data`. */
+export type MessageSignature = { signatureType: string; classical: { keyType: string; publicKey: string; signature: string }; pq?: { algorithmId: number; signature: string } };
+
+export async function signArbitrary(signer: string, data: string): Promise<MessageSignature> {
+  const n = qorex() as unknown as { signArbitrary?: (c: string, s: string, d: string) => Promise<MessageSignature> } | null;
+  if (!n?.signArbitrary) throw new Error('Update QoreX: this version cannot sign a message');
+  return n.signArbitrary(CHAIN, signer, data);
+}
+
+/**
+ * The signature the lender's encryption key is derived from: the secp256k1 half of a QoreX message signature, which
+ * is deterministic (RFC 6979), so the same account gets the same key back on any device.
+ */
+export async function keySignature(message: string): Promise<Hex> {
+  const n = qorex();
+  if (!n) throw new Error('QoreX is not installed');
+  const { bech32Address } = await n.getKey(CHAIN);
+  const sig = await signArbitrary(bech32Address, message);
+  return bytesToHex(Uint8Array.from(atob(sig.classical.signature), (c) => c.charCodeAt(0)));
+}
+
+// ---- authz grant, hand-encoded ---------------------------------------------------------------------------------
+class W {
+  private c: number[] = [];
+  private v(n: number) {
+    while (n > 0x7f) {
+      this.c.push((n & 0x7f) | 0x80);
+      n = Math.floor(n / 128);
+    }
+    this.c.push(n);
+  }
+  bytes(f: number, b: Uint8Array) {
+    this.v((f << 3) | 2);
+    this.v(b.length);
+    for (const x of b) this.c.push(x);
+    return this;
+  }
+  string(f: number, s: string) {
+    return this.bytes(f, new TextEncoder().encode(s));
+  }
+  varint(f: number, n: number) {
+    this.v(f << 3);
+    this.v(n);
+    return this;
+  }
+  done() {
+    return Uint8Array.from(this.c);
+  }
+}
+
+/** Signs, in QoreX, an authz grant: Agama's relayer may send MsgCrossVMCall as the lender, for `days`. */
+export async function authorizeRelayer(granter: string, relayer: string, days = 7): Promise<QorexResult> {
+  const expires = Math.floor(Date.now() / 1000) + days * 86_400;
+  const auth = new W().string(1, '/cosmos.authz.v1beta1.GenericAuthorization').bytes(2, new W().string(1, '/qorechain.crossvm.v1.MsgCrossVMCall').done()).done();
+  const grant = new W().bytes(1, auth).bytes(2, new W().varint(1, expires).done()).done();
+  const msg = { typeUrl: '/cosmos.authz.v1beta1.MsgGrant', value: new W().string(1, granter).string(2, relayer).bytes(3, grant).done() };
+  return signAndBroadcast([msg], `Agama: let the relayer execute the actions you sign, for ${days} days`, 300_000);
 }

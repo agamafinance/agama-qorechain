@@ -1,7 +1,7 @@
 'use client';
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { connectQorex, qorexEvm, waitForQorex, type Account } from './qorex';
+import { connectQorex, qorex, waitForQorex, type Account } from './qorex';
 
 type WalletState = {
   account: Account | null;
@@ -44,7 +44,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     setError(null);
     setConnecting(true);
     try {
-      if (!qorexEvm()) {
+      if (!qorex()) {
         setInstalled(false);
         throw new Error('Install QoreX to use Agama.');
       }
