@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity ^0.8.28;
 
-import {Test, console} from "forge-std/Test.sol";
+import {Test, Vm, console} from "forge-std/Test.sol";
 import {ZKNOX_dilithium} from "ETHDILITHIUM/ZKNOX_dilithium.sol";
 import {MlDsa44AttestationVerifier} from "../src/cctp/pq/MlDsa44AttestationVerifier.sol";
 import {MerkleWotsAttestationVerifier} from "../src/cctp/pq/MerkleWotsAttestationVerifier.sol";
@@ -223,5 +223,33 @@ contract HybridMessengerTest is Test {
         messenger.receiveMessage(m, att);
         vm.expectRevert();
         messenger.receiveMessage(m, att);
+    }
+}
+
+/// @notice FINDINGS 17: a messenger redeployed on the same chain and domain counted its nonces from 1 again, into
+///         nonces its predecessor had spent on the far side, and a return was burned then refused there.
+contract MessengerNonceTest is Test {
+    function _sentNonce(HybridAttestedMessenger m, MockUSDC usdc) internal returns (bytes32 nonce) {
+        usdc.approve(address(m), 1);
+        vm.recordLogs();
+        m.depositForBurn(1, 9800, bytes32(uint256(1)), address(usdc), bytes32(0), 0, 2000);
+        bytes memory message;
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].topics[0] == keccak256("MessageSent(bytes)")) message = abi.decode(logs[i].data, (bytes));
+        }
+        // CCTP V2 layout: version (4) | source (4) | destination (4) | nonce (32)
+        assembly {
+            nonce := mload(add(message, 44))
+        }
+    }
+
+    function test_twoMessengersOnOneDomainNeverShareANonce() public {
+        MockUSDC usdc = new MockUSDC(address(this));
+        usdc.grantRole(usdc.MINTER_ROLE(), address(this));
+        usdc.mint(address(this), 10);
+        HybridAttestedMessenger a = new HybridAttestedMessenger(0, IBurnMintToken(address(usdc)), 9800, bytes32(uint256(7)), bytes32(uint256(8)), address(1));
+        HybridAttestedMessenger b = new HybridAttestedMessenger(0, IBurnMintToken(address(usdc)), 9800, bytes32(uint256(7)), bytes32(uint256(8)), address(1));
+        assertTrue(_sentNonce(a, usdc) != _sentNonce(b, usdc), "first message of each messenger");
     }
 }

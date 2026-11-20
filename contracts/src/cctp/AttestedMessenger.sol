@@ -138,7 +138,10 @@ abstract contract AttestedMessenger is ITokenMessengerV2, IMessageTransmitterV2 
         bytes memory body = CctpMessageV2.formatBurnBody(
             burnToken, mintRecipient, amount, CctpMessageV2.toBytes32(msg.sender), maxFee, hookData
         );
-        bytes32 n = keccak256(abi.encode(block.chainid, localDomain, ++sent));
+        // The messenger's own address is part of the nonce. The receiving side keys spent nonces by nonce alone, as
+        // Circle's transmitter does, so a messenger redeployed on the same chain and domain must never count from 1
+        // into nonces its predecessor already spent: that is how a return was once burned and refused (FINDINGS 17).
+        bytes32 n = keccak256(abi.encode(block.chainid, address(this), localDomain, ++sent));
         bytes memory message = CctpMessageV2.formatMessage(
             localDomain,
             destinationDomain,
