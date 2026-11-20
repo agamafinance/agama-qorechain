@@ -446,30 +446,7 @@ export function reason(e: unknown): string {
   return err?.shortMessage ?? err?.message ?? 'The transaction failed.';
 }
 
-/// What the lender has set up for Agama's relayer: an EVM access window (opened in QoreX) and the grant.
-export type RelayStatus = { relayer: string; grant: string | null; window: { live: boolean; remainingTxs?: string; remainingBlocks?: string }; pqKey: boolean };
-
-export function useRelayStatus() {
-  const { account } = useWallet();
-  return useQuery({
-    queryKey: ['relay', account?.address],
-    enabled: !!account,
-    refetchInterval: 8_000,
-    queryFn: async (): Promise<RelayStatus> => {
-      const r = await fetch(`${BASE}/api/relay/status?account=${account!.address}`, { cache: 'no-store' });
-      const j = await r.json();
-      if (!r.ok) throw new Error(j.error ?? `relayer ${r.status}`);
-      return j;
-    },
-  });
-}
-
 const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? '/qorechain';
-const sha256Hex = async (h: Hex) => {
-  const b = Uint8Array.from(h.slice(2).match(/../g)!.map((x) => parseInt(x, 16)));
-  return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', b)), (x) => x.toString(16).padStart(2, '0')).join('');
-};
-
 type Call = { target: Address; data: Hex };
 const callsAbi = [{ type: 'tuple[]', components: [{ name: 'target', type: 'address' }, { name: 'data', type: 'bytes' }] }] as const;
 const pqAccountAbi = [{ type: 'function', name: 'nonce', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] }] as const;

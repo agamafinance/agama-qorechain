@@ -54,7 +54,8 @@ export async function ensureRelayerWindow() {
 const ALLOWED = () => new Set([Q.usdc, Q.access, Q.vault].map((a: string) => a.toLowerCase()));
 
 export async function submit(req: { owner: Address; calls: Call[]; summary: string; deadline: string; signature: MessageSignature }) {
-  const { owner, calls, summary } = req;
+  const { owner, calls, summary } = req ?? ({} as typeof req);
+  if (typeof req?.deadline !== "string" || !/^\d{1,12}$/.test(req.deadline)) throw new Error("bad deadline");
   const deadline = BigInt(req.deadline);
   if (!/^0x[0-9a-fA-F]{40}$/.test(owner)) throw new Error("bad owner");
   if (!Array.isArray(calls) || calls.length < 1 || calls.length > 4) throw new Error("one to four calls");
