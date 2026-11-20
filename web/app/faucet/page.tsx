@@ -48,8 +48,8 @@ export default function FaucetPage() {
             Get USDC
           </h1>
           <p className="mt-4 max-w-[640px] text-[15px] text-fg-muted">
-            QoreChain has no USDC yet, so this testnet runs on a mock USDC that crosses to Ethereum the way CCTP moves
-            USDC. QOR pays the gas, and QoreX signs every transaction with secp256k1 and ML-DSA-87.
+            Agama runs on test money: mock USDC, as much as you like, free. Claim it here, then deposit it on Earn.
+            You also need a little QOR for transaction fees.
           </p>
 
           <div className="mt-7 flex flex-wrap gap-8">
@@ -111,32 +111,13 @@ export default function FaucetPage() {
             />
           </StepRow>
 
-          <StepRow
-            icon="/logos/usdc.svg"
-            title="Lend the fest's fUSD"
-            blurb={
-              !address
-                ? 'Connect QoreX first.'
-                : (user.fusd ?? 0n) === 0n
-                  ? "No fUSD here: QoreChain's dashboard faucet pays 1,000 a day, then swap it one to one for the vault's USDC."
-                  : `${fmt(user.fusd)} fUSD from QoreChain's faucet. One signature converts it, approves and swaps it one to one.`
-            }
-          >
-            <TxButton
-              fit
-              label={(user.fusd ?? 0n) > 0n ? `Swap ${fmt(user.fusd)} fUSD` : 'Swap fUSD'}
-              disabled={!address || noGas || !user.fusd}
-              action={() => act.rampFusd(user.fusd!, user.fusdBank ?? 0n)}
-            />
-          </StepRow>
-
           {/* Next step */}
           <Link href="/" className="group mt-6 flex items-center gap-4 rounded-2xl bg-[#254839] px-5 py-4">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={asset('/logos/agusd.svg')} alt="" className="h-10 w-10" />
             <div>
-              <div className="text-[15px] font-medium text-[#fdf8ed]">Funded? Mint agUSD</div>
-              <div className="text-[13px] text-[#fdf8ed]/70">Once approved on Access, deposit into the permissioned vault</div>
+              <div className="text-[15px] font-medium text-[#fdf8ed]">Got your USDC? Deposit it</div>
+              <div className="text-[13px] text-[#fdf8ed]/70">Get verified and deposit on Earn, in one card</div>
             </div>
             <ArrowRight className="ml-auto h-5 w-5 text-[#fdf8ed]/80 transition-transform group-hover:translate-x-0.5" />
           </Link>
