@@ -31,5 +31,6 @@
   "retired": {
     "dataRoomV1": "0x1c39681a25f1c9dca3f3a6621f5abbb629f574ef"
   },
-  "dataRoom": "0x06b89566a2eef09c964522445ba578dc710ea815"
+  "dataRoom": "0x06b89566a2eef09c964522445ba578dc710ea815",
+  "pqAccountFactory": "0x6a319a4ee0a6c1094f604cd893b5e58fdb7d8794"
 }

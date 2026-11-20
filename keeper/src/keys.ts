@@ -38,7 +38,7 @@ export async function registerKem(role: "compliance" | "auditor") {
 /** The contracts the operator may call. Contract creation needs an unscoped window, opened only to deploy. */
 export function windowTargets(): `0x${string}`[] {
   const d = loadDeployments("qorechain");
-  return [d.usdc, d.access, d.vault, d.allocator, d.messenger, d.dataRoom].filter(Boolean);
+  return [d.usdc, d.access, d.vault, d.allocator, d.messenger, d.dataRoom, d.pqAccountFactory, d.hybridGuard].filter(Boolean);
 }
 
 export async function openWindow(blocks = 17_280n, maxTxs = 1_000n, scoped = true) {
