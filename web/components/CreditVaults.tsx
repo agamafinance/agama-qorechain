@@ -2,13 +2,13 @@
 
 // Where the yield comes from. The same ABF partner sleeves the Stellar app lists; on QoreChain the senior one is
 // wired end to end and the other two are the next to plug into the same receiver.
-import { Space_Grotesk } from 'next/font/google';
+import localFont from 'next/font/local';
 import { ETHEREUM } from '@/lib/deployments';
 import { ethAddress } from '@/lib/chains';
 import { usd } from '@/lib/format';
 import { asset } from '@/lib/asset';
 
-const grotesk = Space_Grotesk({ subsets: ['latin'], weight: ['500', '600'] });
+const grotesk = localFont({ src: '../app/fonts/space-grotesk-latin.woff2', weight: '300 700' });
 
 const SLEEVES = [
   {
