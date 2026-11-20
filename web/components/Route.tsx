@@ -8,7 +8,7 @@ import { usd } from '@/lib/format';
 import { card } from './ui';
 import { asset } from '@/lib/asset';
 
-type Stop = { chain: string; soon?: boolean; logo: string; title: string; what: string; value?: bigint; note: string };
+type Stop = { chain: string; link?: { label: string; href: string }; logo: string; title: string; what: string; value?: bigint; note: string };
 
 export function Route({ vault, book, inflight }: { vault?: VaultState; book?: Book; inflight?: bigint }) {
   const stops: Stop[] = [
@@ -24,7 +24,8 @@ export function Route({ vault, book, inflight }: { vault?: VaultState; book?: Bo
       chain: 'CCTP V2',
       logo: '/logos/usdc.svg',
       title: 'Burn and mint',
-      what: 'CCTP V2 format · ML-DSA attested home. QoreChain Bridge soon',
+      what: 'CCTP V2 format · ML-DSA attested home.',
+      link: { label: 'QoreChain Bridge soon', href: 'https://docs.qorechain.io/user-guide/bridging-assets' },
       value: inflight,
       note: 'in flight between chains',
     },
@@ -70,18 +71,27 @@ export function Route({ vault, book, inflight }: { vault?: VaultState; book?: Bo
                   <img src={asset(s.logo)} alt="" className="h-[18px] w-[18px] object-contain" />
                 </span>
                 <span className="text-[11px] uppercase tracking-wider text-fg-muted">{s.chain}</span>
-                {s.soon && (
-                  <span
-                    className="rounded-full bg-[#254839] px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-[#fdf8ed]"
-                    title="Runs today on Agama's own attested messenger, in Circle's CCTP V2 format; moves to QoreChain's EVM bridge when it ships"
-                  >
-                    Soon
-                  </span>
-                )}
+
               </div>
               <div className="md:mt-3 min-w-0">
                 <div className="text-[15px] font-medium text-fg leading-tight">{s.title}</div>
-                <div className="text-[12px] text-fg-muted">{s.what}</div>
+                <div className="text-[12px] text-fg-muted">
+                  {s.what}
+                  {s.link && (
+                    <>
+                      {' '}
+                      <a
+                        href={s.link.href}
+                        target="_blank"
+                        rel="noreferrer"
+                        title="QoreChain's own bridge (QCB), PQC-attested; Agama moves to it when its routes go live"
+                        className="underline underline-offset-2 hover:text-fg"
+                      >
+                        {s.link.label}
+                      </a>
+                    </>
+                  )}
+                </div>
                 <div className="mt-2 text-[20px] font-semibold tabular-nums text-fg">{usd(s.value, 0)}</div>
                 <div className="text-[11px] text-fg-muted">{s.note}</div>
               </div>
