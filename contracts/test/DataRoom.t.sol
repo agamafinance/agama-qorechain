@@ -24,7 +24,12 @@ contract DataRoomTest is Fixture {
         b[size - 1] = bytes32(seed)[31];
     }
 
-    function _epochSig(uint256 epoch, address[] memory members, bytes memory dist)
+    function _one(bytes memory dist) internal pure returns (bytes32[] memory h) {
+        h = new bytes32[](1);
+        h[0] = keccak256(dist);
+    }
+
+    function _epochSigParts(uint256 epoch, address[] memory members, bytes32[] memory parts)
         internal
         view
         returns (uint256 d, bytes memory s)
@@ -33,14 +38,23 @@ contract DataRoomTest is Fixture {
             address(dataRoom),
             manager,
             "publishEpoch",
-            abi.encode(epoch, keccak256(abi.encode(members)), keccak256(dist))
+            abi.encode(epoch, keccak256(abi.encode(members)), keccak256(abi.encode(parts)))
         );
+    }
+
+    function _epochSig(uint256 epoch, address[] memory members, bytes memory dist)
+        internal
+        view
+        returns (uint256 d, bytes memory s)
+    {
+        return _epochSigParts(epoch, members, _one(dist));
     }
 
     function _publishEpoch(uint256 epoch, address[] memory members) internal returns (bytes memory dist) {
         dist = _envelope(128, epoch);
         (uint256 d, bytes memory s) = _epochSig(epoch, members, dist);
-        dataRoom.publishEpoch(epoch, members, dist, d, s);
+        dataRoom.publishEpoch(epoch, members, _one(dist), d, s);
+        dataRoom.publishEpochPart(epoch, 0, dist);
     }
 
     function _reportSig(uint256 epoch, bytes32 kind, bytes memory blob, bytes32 cc, bytes32 pc)
@@ -68,9 +82,9 @@ contract DataRoomTest is Fixture {
         bytes memory dist = _envelope(128, 0);
         (uint256 d, bytes memory s) = _epochSig(0, m, dist);
         vm.expectEmit(address(dataRoom));
-        emit DataRoom.EpochPublished(0, m, dist);
+        emit DataRoom.EpochPublished(0, m, _one(dist));
         vm.prank(carol); // anyone relays
-        dataRoom.publishEpoch(0, m, dist, d, s);
+        dataRoom.publishEpoch(0, m, _one(dist), d, s);
 
         assertEq(dataRoom.epochCount(), 1);
         assertTrue(dataRoom.isMember(0, alice));
@@ -81,7 +95,8 @@ contract DataRoomTest is Fixture {
         assertEq(e.blockNumber, block.number);
         assertEq(e.members, 2);
         assertEq(e.membersHash, keccak256(abi.encode(m)));
-        assertEq(e.distributionHash, keccak256(dist));
+        assertEq(e.distributionHash, keccak256(abi.encode(_one(dist))));
+        assertEq(e.parts, 1);
     }
 
     function test_epochsAreSequential() public {
@@ -89,12 +104,12 @@ contract DataRoomTest is Fixture {
         bytes memory dist = _envelope(128, 1);
         (uint256 d, bytes memory s) = _epochSig(1, m, dist);
         vm.expectRevert(abi.encodeWithSelector(DataRoom.WrongEpoch.selector, 0, 1));
-        dataRoom.publishEpoch(1, m, dist, d, s);
+        dataRoom.publishEpoch(1, m, _one(dist), d, s);
 
         _publishEpoch(0, m);
         (d, s) = _epochSig(0, m, dist);
         vm.expectRevert(abi.encodeWithSelector(DataRoom.WrongEpoch.selector, 1, 0));
-        dataRoom.publishEpoch(0, m, dist, d, s);
+        dataRoom.publishEpoch(0, m, _one(dist), d, s);
 
         _publishEpoch(1, m);
         assertEq(dataRoom.epochCount(), 2);
@@ -119,27 +134,70 @@ contract DataRoomTest is Fixture {
         bytes memory dist = _envelope(128, 0);
         (uint256 d, bytes memory s) = _epochSig(0, m, dist);
         vm.expectRevert(abi.encodeWithSelector(DataRoom.NotEligible.selector, carol));
-        dataRoom.publishEpoch(0, m, dist, d, s);
+        dataRoom.publishEpoch(0, m, _one(dist), d, s);
 
         _revoke(bob);
         m = _members2();
         (d, s) = _epochSig(0, m, dist);
         vm.expectRevert(abi.encodeWithSelector(DataRoom.NotEligible.selector, bob));
-        dataRoom.publishEpoch(0, m, dist, d, s);
+        dataRoom.publishEpoch(0, m, _one(dist), d, s);
     }
 
-    function test_theDistributionMustBeAQoreSealEnvelope() public {
+    function test_aDistributionPartMustBeAQoreSealEnvelope() public {
         address[] memory m = _members2();
         bytes memory dist = _envelope(128, 0);
         dist[0] = 0x00;
         (uint256 d, bytes memory s) = _epochSig(0, m, dist);
+        dataRoom.publishEpoch(0, m, _one(dist), d, s);
         vm.expectRevert(DataRoom.BadEnvelope.selector);
-        dataRoom.publishEpoch(0, m, dist, d, s);
+        dataRoom.publishEpochPart(0, 0, dist);
+    }
 
-        dist = _envelope(63, 0);
-        (d, s) = _epochSig(0, m, dist);
-        vm.expectRevert(DataRoom.BadEnvelope.selector);
-        dataRoom.publishEpoch(0, m, dist, d, s);
+    function test_aPartMustHashToWhatTheManagerSigned() public {
+        address[] memory m = _members2();
+        bytes memory dist = _envelope(128, 0);
+        (uint256 d, bytes memory s) = _epochSig(0, m, dist);
+        dataRoom.publishEpoch(0, m, _one(dist), d, s);
+        bytes memory forged = _envelope(128, 9);
+        vm.expectRevert(abi.encodeWithSelector(DataRoom.PartMismatch.selector, keccak256(dist), keccak256(forged)));
+        vm.prank(carol);
+        dataRoom.publishEpochPart(0, 0, forged);
+        vm.prank(carol); // anyone posts the genuine one
+        dataRoom.publishEpochPart(0, 0, dist);
+        vm.expectRevert(abi.encodeWithSelector(DataRoom.PartPosted.selector, 0, 0));
+        dataRoom.publishEpochPart(0, 0, dist);
+        vm.expectRevert(abi.encodeWithSelector(DataRoom.NoSuchPart.selector, 0, 1));
+        dataRoom.publishEpochPart(0, 1, dist);
+        assertEq(dataRoom.epochs(0).partsPosted, 1);
+    }
+
+    function test_partsSplitTheMembersInEights() public {
+        address[] memory m = new address[](10);
+        for (uint256 i; i < 10; ++i) {
+            m[i] = makeAddr(string.concat("member", vm.toString(i)));
+            _onboard(m[i]);
+        }
+        bytes32[] memory parts = new bytes32[](2);
+        bytes memory p0 = _envelope(128, 100);
+        bytes memory p1 = _envelope(128, 101);
+        parts[0] = keccak256(p0);
+        parts[1] = keccak256(p1);
+        (uint256 d, bytes memory s) = _epochSigParts(0, m, parts);
+        bytes32[] memory wrong = new bytes32[](1);
+        wrong[0] = parts[0];
+        vm.expectRevert(abi.encodeWithSelector(DataRoom.BadParts.selector, 10, 1));
+        dataRoom.publishEpoch(0, m, wrong, d, s);
+        dataRoom.publishEpoch(0, m, parts, d, s);
+        dataRoom.publishEpochPart(0, 1, p1);
+        (bool member, uint256 part, uint64 at) = dataRoom.partOf(0, m[9]);
+        assertTrue(member);
+        assertEq(part, 1);
+        assertEq(at, block.number);
+        (member, part, at) = dataRoom.partOf(0, m[3]);
+        assertEq(part, 0);
+        assertEq(at, 0, "part 0 not posted yet");
+        (member,,) = dataRoom.partOf(0, carol);
+        assertFalse(member);
     }
 
     function test_theEpochSignatureBindsMembersAndDistribution() public {
@@ -150,11 +208,11 @@ contract DataRoomTest is Fixture {
         address[] memory fewer = new address[](1);
         fewer[0] = alice;
         vm.expectRevert(abi.encodeWithSelector(PqcAuth.BadPqcSignature.selector, manager));
-        dataRoom.publishEpoch(0, fewer, dist, d, s);
+        dataRoom.publishEpoch(0, fewer, _one(dist), d, s);
 
         bytes memory other = _envelope(128, 1);
         vm.expectRevert(abi.encodeWithSelector(PqcAuth.BadPqcSignature.selector, manager));
-        dataRoom.publishEpoch(0, m, other, d, s);
+        dataRoom.publishEpoch(0, m, _one(other), d, s);
     }
 
     function test_onlyTheManagersKeyPublishes() public {
@@ -170,7 +228,7 @@ contract DataRoomTest is Fixture {
             d
         );
         vm.expectRevert(abi.encodeWithSelector(PqcAuth.BadPqcSignature.selector, manager));
-        dataRoom.publishEpoch(0, m, dist, d, s);
+        dataRoom.publishEpoch(0, m, _one(dist), d, s);
     }
 
     // ---- reports ----
@@ -287,7 +345,7 @@ contract DataRoomTest is Fixture {
         bytes memory dist = _envelope(128, 0);
         (d, s) = _epochSig(0, m, dist); // still signed by the old manager
         vm.expectRevert(abi.encodeWithSelector(PqcAuth.BadPqcSignature.selector, carol));
-        dataRoom.publishEpoch(0, m, dist, d, s);
+        dataRoom.publishEpoch(0, m, _one(dist), d, s);
     }
 
     function test_setManagerRefusesZero() public {
