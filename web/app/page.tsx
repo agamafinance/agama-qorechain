@@ -12,6 +12,7 @@ import { AmountBox, card, Hero, Panel, primaryBtn, Row, Segmented, Stat, Status,
 import { NavChart } from '@/components/NavChart';
 import { Route } from '@/components/Route';
 import { CreditVaults } from '@/components/CreditVaults';
+import { BridgeSecurity } from '@/components/BridgeSecurity';
 import { DASH, fmt, parse, raw, usd } from '@/lib/format';
 import { netApy, precisePrice, useActions, useActivity, useBook, useUser, useVault } from '@/lib/protocol';
 import { useWallet } from '@/lib/wallet';
@@ -225,6 +226,8 @@ export default function EarnPage() {
         </div>
 
         <Route vault={vault} book={book} inflight={inflight} />
+
+        <BridgeSecurity />
 
         <CreditVaults deployed={vault?.deployed} />
       </Panel>
