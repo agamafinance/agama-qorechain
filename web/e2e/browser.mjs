@@ -148,8 +148,10 @@ await check('portfolio shows the position and the access', async () => {
 
 await check('data room: the next epoch includes the lender, who decrypts the loan tape', async () => {
   await page.goto(`${BASE}/data-room`);
-  await waitText('Decrypt in this browser', 300_000);
-  await page.getByRole('button', { name: /Decrypt in this browser/ }).click();
+  // The tape opens by itself for a member whose key is in this browser; the button is only a fallback.
+  await page.getByText(/ciphertext matches its on-chain commitment|Decrypt in this browser/).first().waitFor({ timeout: 300_000 });
+  const btn = page.getByRole('button', { name: /Decrypt in this browser/ });
+  if (await btn.isVisible().catch(() => false)) await btn.click();
   await waitText('ciphertext matches its on-chain commitment', 60_000);
   const rows = await page.locator('tbody tr').count();
   assert(rows === 12, `12 facilities, got ${rows}`);
