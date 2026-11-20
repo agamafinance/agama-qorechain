@@ -35,7 +35,7 @@ import { refuel, TANK } from "./gastank.js";
 import { eth, qore, REST, sleep } from "./net.js";
 import { aadFor, officer, SEAL } from "./sealing.js";
 import { reviewDossiers, type Letter } from "./compliance.js";
-import { publishTape } from "./dataroom.js";
+import { epochEnvelopeFor, epochEnvelopeForAuditor, publishTape } from "./dataroom.js";
 import { relayAll } from "./relay.js";
 import { bringHome, runBook } from "./book.js";
 import { rebalance, settleQueue, snapshot, vaultNeedsWork } from "./vault.js";
@@ -217,18 +217,18 @@ await sleep(3_000);
 const epochs = await read<bigint>(Q.dataRoom, Room, "epochCount");
 const ep = await read<{ blockNumber: bigint }>(Q.dataRoom, Room, "epochs", [epochs - 1n]);
 check("lender is a member of the current epoch", await read<boolean>(Q.dataRoom, Room, "isMember", [epochs - 1n, twin]), `epoch ${epochs - 1n}`);
-const epLog = (await qore.getLogs({ address: Q.dataRoom, event: parseAbiItem("event EpochPublished(uint256 indexed epoch, address[] members, bytes distribution)"), fromBlock: ep.blockNumber, toBlock: ep.blockNumber }))[0];
-const ek = openEpochKey({ chainId: SEAL.chainId, purpose: SEAL.epoch, envelope: hexToBytes(epLog.args.distribution!), keys });
+const myPart = await epochEnvelopeFor(epochs - 1n, twin);
+const ek = openEpochKey({ chainId: SEAL.chainId, purpose: SEAL.epoch, envelope: hexToBytes(myPart!), keys });
 const [last] = await read<{ blockNumber: bigint; ciphertextCommitment: Hex }[]>(Q.dataRoom, Room, "latestReports", [1n]);
 const rLog = (await qore.getLogs({ address: Q.dataRoom, event: parseAbiItem("event ReportPublished(uint256 indexed index, uint256 indexed epoch, bytes32 indexed kind, bytes blob, bytes32 ciphertextCommitment, bytes32 plaintextCommitment)"), fromBlock: last.blockNumber, toBlock: last.blockNumber })).at(-1)!;
 const opened = openBatch({ blob: hexToBytes(rLog.args.blob!), keys: [ek] });
 const tape = JSON.parse(new TextDecoder().decode(opened.data)) as LoanTape;
 check("lender decrypts the loan tape", tape.loans.length === 12, `${tape.loans.length} facilities, book ${usd(BigInt(tape.book))}, 30dpd ${tape.delinquency.dpd30Bps / 100}%`);
 check("ciphertext commitment matches the chain", toHex(opened.ciphertextCommitment) === last.ciphertextCommitment);
-const auditorKey = openEpochKey({ chainId: SEAL.chainId, purpose: SEAL.epoch, envelope: hexToBytes(epLog.args.distribution!), keys: sealKeys("auditor") });
+const auditorKey = openEpochKey({ chainId: SEAL.chainId, purpose: SEAL.epoch, envelope: hexToBytes((await epochEnvelopeForAuditor(epochs - 1n))!), keys: sealKeys("auditor") });
 check("the auditor opens the same epoch", Buffer.from(auditorKey.key).equals(Buffer.from(ek.key)));
 let outsider = true;
-try { openEpochKey({ chainId: SEAL.chainId, purpose: SEAL.epoch, envelope: hexToBytes(epLog.args.distribution!), keys: generateSealKeys() }); } catch { outsider = false; }
+try { openEpochKey({ chainId: SEAL.chainId, purpose: SEAL.epoch, envelope: hexToBytes(myPart!), keys: generateSealKeys() }); } catch { outsider = false; }
 check("an outsider's key does not open it", !outsider);
 
 // ---- 7. a queued exit, paid by cash brought home under an ML-DSA-87 attestation ----

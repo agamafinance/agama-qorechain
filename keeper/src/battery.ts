@@ -37,6 +37,7 @@ import { aadFor, officer, SEAL } from "./sealing.js";
 import { CONVERT_COIN_TYPE_URL } from "./erc20Msgs.js";
 import { verifyTxByHash } from "./provenance.js";
 import { ROOT } from "./deployments.js";
+import { epochEnvelopeFor, epochEnvelopeForAuditor } from "./dataroom.js";
 import type { Letter } from "./compliance.js";
 import type { LoanTape } from "./tape.js";
 
@@ -342,25 +343,31 @@ await until("an epoch with all six", async () => {
   return m.every(Boolean);
 }, 15 * 60_000);
 const ep = await read<any>(Q.dataRoom, Room, "epochs", [epoch]);
-const epLog = (await qore.getLogs({ address: Q.dataRoom, event: parseAbiItem("event EpochPublished(uint256 indexed epoch, address[] members, bytes distribution)"), args: { epoch }, fromBlock: ep.blockNumber, toBlock: ep.blockNumber }))[0];
-const distribution = hexToBytes(epLog.args.distribution!);
+await until("every distribution part posted", async () => (await read<any>(Q.dataRoom, Room, "epochs", [epoch])).partsPosted === ep.parts, 10 * 60_000);
+const distributionOf = async (l: Lender) => hexToBytes((await epochEnvelopeFor(epoch, l.twin)) ?? (await epochEnvelopeForAuditor(epoch))!);
 await until("a tape under that epoch", async () => {
   const [r] = await read<any[]>(Q.dataRoom, Room, "latestReports", [1n]);
   return r?.epoch === epoch;
 }, 15 * 60_000);
 const [rep] = await read<any[]>(Q.dataRoom, Room, "latestReports", [1n]);
 const rLog = (await qore.getLogs({ address: Q.dataRoom, event: parseAbiItem("event ReportPublished(uint256 indexed index, uint256 indexed epoch, bytes32 indexed kind, bytes blob, bytes32 ciphertextCommitment, bytes32 plaintextCommitment)"), fromBlock: rep.blockNumber, toBlock: rep.blockNumber })).at(-1)!;
-const opened = ok.map((l) => {
+const parts = await Promise.all(ok.map(distributionOf));
+const opened = ok.map((l, k) => {
   try {
-    const ek = openEpochKey({ chainId: SEAL.chainId, purpose: SEAL.epoch, envelope: distribution, keys: l.keys });
+    const ek = openEpochKey({ chainId: SEAL.chainId, purpose: SEAL.epoch, envelope: parts[k], keys: l.keys });
     const b = openBatch({ blob: hexToBytes(rLog.args.blob!), keys: [ek] });
     return (JSON.parse(new TextDecoder().decode(b.data)) as LoanTape).loans.length === 12 && toHex(b.ciphertextCommitment) === rep.ciphertextCommitment;
   } catch { return false; }
 });
-check(`all six approved lenders decrypt tape #${rLog.args.index} of epoch ${epoch}`, opened.every(Boolean), `${ep.members} members, ${(distribution.length / 1024).toFixed(1)} kB key envelope`);
-const refusedOpen = refused.some((l) => {
-  try { openEpochKey({ chainId: SEAL.chainId, purpose: SEAL.epoch, envelope: distribution, keys: l.keys }); return true; } catch { return false; }
-});
+check(`all six approved lenders decrypt tape #${rLog.args.index} of epoch ${epoch}`, opened.every(Boolean), `${ep.members} members in ${ep.parts} parts, ${(parts[0].length / 1024).toFixed(1)} kB each at most`);
+const allParts = await Promise.all(Array.from({ length: Number(ep.parts) }, async (_, k) => {
+  const at = await read<bigint>(Q.dataRoom, Room, "partBlock", [epoch, BigInt(k)]);
+  const logs = await qore.getLogs({ address: Q.dataRoom, event: parseAbiItem("event EpochPart(uint256 indexed epoch, uint256 indexed part, bytes distribution)"), args: { epoch, part: BigInt(k) }, fromBlock: at, toBlock: at });
+  return hexToBytes(logs.at(-1)!.args.distribution!);
+}));
+const refusedOpen = refused.some((l) => allParts.some((p) => {
+  try { openEpochKey({ chainId: SEAL.chainId, purpose: SEAL.epoch, envelope: p, keys: l.keys }); return true; } catch { return false; }
+}));
 check("neither refused lender can open the epoch key", !refusedOpen);
 
 // ---------------------------------------------------------------------------
@@ -429,9 +436,13 @@ console.log(`\n== ${phase}`);
   }, 15 * 60_000);
   const n = (await read<bigint>(Q.dataRoom, Room, "epochCount")) - 1n;
   const e2 = await read<any>(Q.dataRoom, Room, "epochs", [n]);
-  const l2 = (await qore.getLogs({ address: Q.dataRoom, event: parseAbiItem("event EpochPublished(uint256 indexed epoch, address[] members, bytes distribution)"), args: { epoch: n }, fromBlock: e2.blockNumber, toBlock: e2.blockNumber }))[0];
-  let revokedOpens = true;
-  try { openEpochKey({ chainId: SEAL.chainId, purpose: SEAL.epoch, envelope: hexToBytes(l2.args.distribution!), keys: v.keys }); } catch { revokedOpens = false; }
+  await until("the new epoch's parts", async () => (await read<any>(Q.dataRoom, Room, "epochs", [n])).partsPosted === e2.parts, 10 * 60_000);
+  let revokedOpens = false;
+  for (let k = 0n; k < BigInt(e2.parts); k++) {
+    const at = await read<bigint>(Q.dataRoom, Room, "partBlock", [n, k]);
+    const lg = (await qore.getLogs({ address: Q.dataRoom, event: parseAbiItem("event EpochPart(uint256 indexed epoch, uint256 indexed part, bytes distribution)"), args: { epoch: n, part: k }, fromBlock: at, toBlock: at })).at(-1)!;
+    try { openEpochKey({ chainId: SEAL.chainId, purpose: SEAL.epoch, envelope: hexToBytes(lg.args.distribution!), keys: v.keys }); revokedOpens = true; } catch { /* not a reader */ }
+  }
   check(`the next epoch (${n}) leaves the revoked lender out`, !revokedOpens);
 }
 
