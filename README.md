@@ -20,7 +20,7 @@ no key a quantum computer could break can move the money.**
 Built for **Build Before Q-Day**, the QoreChain Developer Fest, on `qorechain-diana`, during the fest.
 Category: **Encrypted Apps**.
 
-> Live on the QoreChain and Ethereum Sepolia testnets. Tests: 170 Foundry, 27 on-chain e2e checks, 9 browser e2e
+> Live on the QoreChain and Ethereum Sepolia testnets. Tests: 170 Foundry, a 42-check battery of 8 lenders against the production keeper, 27 on-chain e2e checks, 9 browser e2e
 > checks with the official QoreX test double.
 
 ## What happens to a lender

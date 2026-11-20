@@ -1,6 +1,15 @@
 # End to end
 
-Both suites run against the live testnets, with the keeper running as it does in production.
+## Battery (`keeper/src/battery.ts`, 42 checks)
+
+Eight lenders at once (six eligible, two that compliance must refuse), every action a real hybrid-signed
+transaction, against the production keeper on GitHub Actions: parallel onboarding, decisions and sealed letters,
+refusals really sent (deposit while refused, transfer to a refused account, malformed key and dossier), six
+concurrent deposits, an fUSD on-ramp, transfers, the bridge and the book, the data room for all six, instant and
+queued exits at once, a revocation, and invariants. Last run, 20 November 2026: **42/42** in 10 minutes
+(`docs/battery/`). Findings in `docs/FINDINGS.md`.
+
+Both suites below run against the live testnets, with the keeper running as it does in production.
 
 ## On chain (`keeper/src/e2e.ts`, 27 checks)
 
