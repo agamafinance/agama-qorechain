@@ -20,7 +20,7 @@ no key a quantum computer could break can move the money.**
 Built for **Build Before Q-Day**, the QoreChain Developer Fest, on `qorechain-diana`, during the fest.
 Category: **Encrypted Apps**.
 
-> Live on the QoreChain and Ethereum Sepolia testnets. Tests: 188 Foundry, a 42-check battery of 8 lenders against the production keeper, 27 on-chain e2e checks, 9 browser e2e
+> Live on the QoreChain and Ethereum Sepolia testnets. Tests: 190 Foundry, a 42-check battery of 8 lenders against the production keeper, 27 on-chain e2e checks, 9 browser e2e
 > checks with the official QoreX test double.
 
 ## What happens to a lender
@@ -90,7 +90,7 @@ Kit; QoreScan.
 
 ## Contracts
 
-`contracts/` · Solidity 0.8.28, Foundry, OpenZeppelin 5.4, Asset Kit. **188 tests** (unit, fuzz, 6 invariants, post-quantum verifier vectors).
+`contracts/` · Solidity 0.8.28, Foundry, OpenZeppelin 5.4, Asset Kit. **190 tests** (unit, fuzz, 6 invariants, post-quantum verifier vectors).
 
 | Contract | Chain | What it does |
 |---|---|---|
@@ -116,7 +116,7 @@ QoreChain `qorechain-diana`, EVM chain id 9800:
 |---|---|
 | agUSD vault | `0x0ed07a6af9e1e78c0166a3c02133ac994268be5d` |
 | AccessRegistry | `0x032492a0dc1159d781025a82a3999faf2d360441` |
-| DataRoom | `0x1c39681a25f1c9dca3f3a6621f5abbb629f574ef` |
+| DataRoom (v2, key in parts) | `0x06b89566a2eef09c964522445ba578dc710ea815` |
 | PqAttestedMessenger | `0x0afb58ce8aa5be74251e61e7b9404529d6087013` |
 | CrossChainAllocator | `0x7e913de8003c0ad626fd2c44d56efea13c28fb17` |
 | QoreChainHybridHolderGuard (Asset Kit) | `0xa112c61bff6439b11ea96ffc20cd121db3f0739a` |
@@ -143,7 +143,7 @@ mock USDC `0x1c8669b4e26a642d83748984d19dd5149af8c42b`. Everything is in `deploy
 ```bash
 git clone --recursive https://github.com/agamafinance/agama-qorechain && cd agama-qorechain
 
-cd contracts && forge test && cd ..            # 188 tests, mock precompiles locally
+cd contracts && forge test && cd ..            # 190 tests, mock precompiles locally
 
 cd web && pnpm install && pnpm build && pnpm start   # http://localhost:3034/qorechain
 ```

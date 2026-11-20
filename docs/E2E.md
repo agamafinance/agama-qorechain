@@ -6,8 +6,8 @@ Eight lenders at once (six eligible, two that compliance must refuse), every act
 transaction, against the production keeper on GitHub Actions: parallel onboarding, decisions and sealed letters,
 refusals really sent (deposit while refused, transfer to a refused account, malformed key and dossier), six
 concurrent deposits, an fUSD on-ramp, transfers, the bridge and the book, the data room for all six, instant and
-queued exits at once, a revocation, and invariants. Last run, 20 November 2026: **42/42** in 10 minutes
-(`docs/battery/`). Findings in `docs/FINDINGS.md`.
+queued exits at once, a revocation, and invariants. Last runs, 20 November 2026: **42/42** in 10 minutes, then again **42/42** on the final setup (Ethereum leg
+attested secp256k1 + ML-DSA-44, data room v2) (`docs/battery/`). Findings in `docs/FINDINGS.md`.
 
 Both suites below run against the live testnets, with the keeper running as it does in production.
 
@@ -31,7 +31,7 @@ hybrid-signed native transactions and MsgCrossVMCall, exactly as QoreX does:
 9. the keeper's gas tank pays the operator inside its spending rule, and the chain refuses a payment over it
 10. every lender transaction is re-verified with QoreSign: secp256k1 and ML-DSA-87
 
-Last run, 19 November 2026: **25/25**.
+Last run, 20 November 2026: **27/27**, through the quantum-resilient Ethereum leg.
 
 ## In the browser (`web/e2e/browser.mjs`, 9 checks)
 
