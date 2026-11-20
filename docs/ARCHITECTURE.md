@@ -25,6 +25,27 @@ deployments/ every address, role and wiring step; v1 kept for the record
 docs/cbom/   QoreScan: CBOM, DORA mapping, crypto-agility template
 ```
 
+## Lender accounts: PqAccount
+
+QoreX signs only what it can display, and it cannot display a cross-VM call. So a lender never sends a transaction
+to Agama. Its Agama account is a `PqAccount`, a contract at an address fixed by its owner alone (CREATE2 from the
+`PqAccountFactory`), and the only thing that moves it is a message the owner signs in QoreX:
+
+```
+"qorechain-msg-v1|qorechain-diana|" ‖ summary ‖ "\n\nAgama account " ‖ account ‖ "\nnonce " ‖ n ‖ "\nvalid until " ‖ t ‖ "\ncalls " ‖ keccak256(abi.encode(calls))
+```
+
+1. The app builds the calls (faucet, approve + deposit, redeem, the encryption key, the sealed application) and asks
+   QoreX to sign the text (`signArbitrary`: ADR-36 secp256k1 + ML-DSA-87). The lender reads what it signs.
+2. The relayer (`keeper/src/pqaccounts.ts`) checks both halves against the keys on chain with QoreSign, then sends
+   `factory.execute`. It pays the gas, from its own scoped EVM window.
+3. The account rebuilds the text, reads its owner's key from `pqcKeyStatus`, verifies the ML-DSA-87 signature with
+   `pqcVerify`, bumps its nonce and makes the calls, to Agama's three contracts only.
+
+The relayer can delay a message, never change one: a different call, amount, summary, account, chain or nonce is a
+different text. A rotated key applies at once. The factory owns the Asset Kit's hybrid holder guard and exempts
+each account it creates, only for an owner whose ML-DSA-87 key is registered with proof of possession.
+
 ## Why each piece is where it is
 
 **The vault is on QoreChain, the book on Ethereum.** The lender's identity, its signatures and the confidential

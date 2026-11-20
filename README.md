@@ -15,8 +15,9 @@ no key a quantum computer could break can move the money.**
   at every membership change. Lenders decrypt it in the browser.
 - The capital crosses to Ethereum to the asset issuer and comes back **attested with ML-DSA-87**: every dollar that
   lands on QoreChain was signed post-quantum.
-- Every lender action is an intent the lender signs in QoreX, **secp256k1 + ML-DSA-87**, verified against the key it
-  registered on chain; Agama's relayer executes it as the lender (authz `MsgExec`), inside the lender's EVM window.
+- **Post-quantum accounts.** Each lender's Agama account is a contract (`PqAccount`) controlled only by the
+  ML-DSA-87 key of its QoreX account. Every action is a message signed in QoreX; the account verifies the signature
+  **on chain with QoreChain's `pqcVerify`** before it acts. No EVM window, no grant, no gas for the lender.
 
 Built for **Build Before Q-Day**, the QoreChain Developer Fest, on `qorechain-diana`, during the fest.
 Category: **Encrypted Apps**.
@@ -149,10 +150,9 @@ cd contracts && forge test && cd ..            # 190 tests, mock precompiles loc
 cd web && pnpm install && pnpm build && pnpm start   # http://localhost:3034/qorechain
 ```
 
-Install QoreX and take a little QOR from the [QoreChain faucet](https://dashboard.qorechain.io/faucet). One-time
-setup: open an **EVM access window** in QoreX, then **Authorize Agama** in the app. Then: **Faucet** (mock USDC),
-**Earn** (get verified and deposit in one card), **Data room**, **Portfolio**. Agama pays the gas of every action.
-Locally: `cd keeper && npx tsx src/relayer.ts` next to the web app.
+Install QoreX and connect. Then: **Faucet** (mock USDC), **Earn** (get verified and deposit in one card), **Data
+room**, **Portfolio**. Every action is one signature; Agama pays the gas. Locally: `cd keeper && npx tsx
+src/relayer.ts` next to the web app.
 
 Operating a deployment (testnet mnemonics only, never committed: `~/.config/qorechain/testnet.mnemonic` for the
 roles, `~/.config/qorechain/agama-funder.mnemonic` for the funding QoreX account):
