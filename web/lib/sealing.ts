@@ -7,7 +7,9 @@
  * is published, on chain, by a transaction QoreX signs with the lender's ML-DSA-87 key.
  */
 import { generateSealKeys, open, seal, sealKeysFromSeed, type SealKeyPair, type SealRecipient } from '@qorechain/qoreseal';
-import { bytesToHex, hexToBytes, type Hex } from 'viem';
+import { bytesToHex, hexToBytes, sha256 as sha256Hex, type Hex } from 'viem';
+
+const sha256 = (b: Uint8Array) => hexToBytes(sha256Hex(b));
 import { COSMOS_CHAIN_ID } from './chains';
 
 export const SEAL = {
@@ -22,6 +24,20 @@ export const SEAL = {
 export const aadFor = (a: string) => new TextEncoder().encode(a.toLowerCase());
 
 const storageKey = (evm: string) => `agama-qore:seal:${evm.toLowerCase()}`;
+
+/// What the lender signs once in QoreX to get its encryption key. The key is derived from the signature, so the same
+/// account gets the same key back on any device, with no file to keep. Signing it sends nothing.
+export const KEY_MESSAGE = (evm: string) =>
+  `Agama on QoreChain: unlock my encryption key.\n\nThis signature derives your private ML-KEM-1024 key on this device. It sends no transaction and costs nothing.\n\nAccount: ${evm.toLowerCase()}`;
+
+/// Derives the lender's QoreSeal keys from its QoreX signature of KEY_MESSAGE, and keeps the seed in this browser.
+export async function unlockKeys(evm: string, sign: (message: string) => Promise<Hex>): Promise<SealKeyPair> {
+  const sig = await sign(KEY_MESSAGE(evm));
+  const seed = sha256(hexToBytes(sig));
+  const keys = sealKeysFromSeed(seed);
+  localStorage.setItem(storageKey(evm), bytesToHex(keys.seed));
+  return keys;
+}
 
 export function loadKeys(evm: string): SealKeyPair | null {
   if (typeof window === 'undefined') return null;

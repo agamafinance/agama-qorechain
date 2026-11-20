@@ -11,7 +11,8 @@ import { toHex, type Hex } from 'viem';
 import type { SealKeyPair } from '@qorechain/qoreseal';
 import { primaryBtn, Status } from './ui';
 import { useActions, useDecision, useOfficerKeys, useUser } from '@/lib/protocol';
-import { createKeys, importSeed, loadKeys, openLetter, sealDossier } from '@/lib/sealing';
+import { importSeed, loadKeys, openLetter, sealDossier, unlockKeys } from '@/lib/sealing';
+import { personalSign } from '@/lib/qorex';
 import { useWallet } from '@/lib/wallet';
 import { reason } from '@/lib/protocol';
 
@@ -63,7 +64,8 @@ export function Onboarding() {
     try {
       let k = keys;
       if (!k || (onChainKey && toHex(k.mlkemPublicKey) !== onChainKey)) {
-        k = createKeys(account.evm);
+        setStep('Unlocking your encryption key in QoreX');
+        k = await unlockKeys(account.evm, (m) => personalSign(account.evm, m));
         setKeys(k);
       }
       if (!onChainKey || onChainKey !== toHex(k.mlkemPublicKey)) {
@@ -110,8 +112,21 @@ export function Onboarding() {
 
       {needsRestore && status !== 'Pending' && (
         <div className="mt-5 rounded-xl bg-[#b4571f]/10 px-4 py-3 text-[13px] text-fg">
-          This browser does not hold your encryption key. Paste the seed from your backup, or verify again with a new
-          key.
+          This browser does not hold your encryption key yet.{' '}
+          <button
+            type="button"
+            className="underline underline-offset-2"
+            onClick={async () => {
+              try {
+                setKeys(await unlockKeys(account.evm, (m) => personalSign(account.evm, m)));
+              } catch (e) {
+                setErr(reason(e));
+              }
+            }}
+          >
+            Unlock it with QoreX
+          </button>{' '}
+          (one signature, no transaction), or
           {restoring ? (
             <div className="mt-2 flex gap-2">
               <input className={input} placeholder="0x…" value={seed} onChange={(e) => setSeed(e.target.value)} />
@@ -190,7 +205,7 @@ export function Onboarding() {
               'Get verified'
             )}
           </button>
-          <p className="mt-2 text-center text-[12px] text-fg-muted">Two quick signatures in QoreX.</p>
+          <p className="mt-2 text-center text-[12px] text-fg-muted">A few quick approvals in QoreX, from an Ethereum (coin 60) account.</p>
           <Status error={err} />
         </>
       )}

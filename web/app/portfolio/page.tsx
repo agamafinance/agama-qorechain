@@ -6,7 +6,8 @@ import { card, primaryBtn } from '@/components/ui';
 import { fmt, usd } from '@/lib/format';
 import { qoreAddress } from '@/lib/chains';
 import { useWallet } from '@/lib/wallet';
-import { backupFile, importSeed, loadKeys } from '@/lib/sealing';
+import { backupFile, importSeed, loadKeys, unlockKeys } from '@/lib/sealing';
+import { personalSign } from '@/lib/qorex';
 import { useActions, useRequests, useUser, useVault } from '@/lib/protocol';
 import { asset } from '@/lib/asset';
 
@@ -165,9 +166,25 @@ function KeyBackup({ evm }: { evm: `0x${string}` }) {
         {err && <span className="text-[12px] text-[#9b2c2c]">{err}</span>}
       </span>
     ) : (
-      <button type="button" onClick={() => setRestoring(true)} className="mt-3 rounded-full bg-[#254839]/[0.08] px-3 py-1 text-[12px] text-[#254839] hover:bg-[#254839]/[0.16]">
-        Restore my encryption key
-      </button>
+      <span className="mt-3 inline-flex gap-2">
+        <button
+          type="button"
+          onClick={async () => {
+            try {
+              setKeys(await unlockKeys(evm, (m) => personalSign(evm, m)));
+            } catch {
+              setErr('Signature declined');
+            }
+          }}
+          className="rounded-full bg-[#254839]/[0.08] px-3 py-1 text-[12px] text-[#254839] hover:bg-[#254839]/[0.16]"
+        >
+          Unlock my encryption key with QoreX
+        </button>
+        <button type="button" onClick={() => setRestoring(true)} className="text-[12px] text-fg-muted underline underline-offset-2">
+          or restore a backup
+        </button>
+        {err && <span className="text-[12px] text-[#9b2c2c]">{err}</span>}
+      </span>
     );
   }
   const download = () => {

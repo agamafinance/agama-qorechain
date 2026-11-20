@@ -14,7 +14,8 @@ import { card, Hero, Panel, primaryBtn, Stat } from '@/components/ui';
 import { qoreTx } from '@/lib/chains';
 import { usd } from '@/lib/format';
 import { kb, useDataRoom, useUser, type RoomReport } from '@/lib/protocol';
-import { loadKeys, SEAL } from '@/lib/sealing';
+import { loadKeys, SEAL, unlockKeys } from '@/lib/sealing';
+import { personalSign } from '@/lib/qorex';
 import { useWallet } from '@/lib/wallet';
 
 type Loan = {
@@ -63,11 +64,11 @@ export default function DataRoomPage() {
   }, [account?.evm, current?.epoch, current?.distribution]);
   const latest = room.data?.reports.find((r) => current && r.epoch === current.epoch && r.blob);
 
-  const unlock = () => {
+  const unlock = async () => {
     setErr(undefined);
     try {
-      const keys = loadKeys(account!.evm);
-      if (!keys) throw new Error('No QoreSeal key in this browser: restore it from your backup on Portfolio.');
+      // No key in this browser yet: one QoreX signature derives it (the same key on any device).
+      const keys = loadKeys(account!.evm) ?? (await unlockKeys(account!.evm, (m) => personalSign(account!.evm, m)));
       const ek = openEpochKey({ chainId: SEAL.chainId, purpose: SEAL.epoch, envelope: hexToBytes(current!.distribution!), keys });
       setEpochKey(ek);
       if (latest?.blob) {
@@ -76,7 +77,7 @@ export default function DataRoomPage() {
         setTape({ t, report: latest, verified: toHex(b.ciphertextCommitment) === latest.ciphertextCommitment });
       }
     } catch (e) {
-      setErr(e instanceof Error && e.message.startsWith('No QoreSeal') ? e.message : 'Your key does not open this epoch: only approved lenders and the auditor are in it.');
+      setErr(e instanceof Error && /declined|rejected/i.test(e.message) ? 'You declined the signature in QoreX.' : 'Your key does not open this epoch: only approved lenders and the auditor are in it.');
     }
   };
 
@@ -131,7 +132,7 @@ export default function DataRoomPage() {
               </p>
               <button type="button" onClick={unlock} className="rounded-full bg-[#254839] px-5 py-2.5 text-[14px] text-[#fdf8ed]">
                 <LockOpen className="mr-2 inline h-4 w-4" aria-hidden />
-                Decrypt in this browser
+                {account && loadKeys(account.evm) ? 'Decrypt in this browser' : 'Unlock with QoreX'}
               </button>
             </div>
           ) : !tape ? (

@@ -49,7 +49,8 @@ export default function FaucetPage() {
           </h1>
           <p className="mt-4 max-w-[640px] text-[15px] text-fg-muted">
             Agama runs on test money: mock USDC, as much as you like, free. Claim it here, then deposit it on Earn.
-            You also need a little QOR for transaction fees.
+            You also need a little QOR for fees, on an Ethereum (coin 60) account in QoreX: Your accounts → Add an
+            Ethereum account.
           </p>
 
           <div className="mt-7 flex flex-wrap gap-8">
