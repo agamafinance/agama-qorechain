@@ -79,7 +79,9 @@ await check('the keeper decides; the card turns into the deposit form by itself'
 
 await check('test USDC from the card, then a deposit, all on Earn', async () => {
   const usdcBtn = page.getByRole('button', { name: /Get 10,000 test USDC/ });
-  if (await usdcBtn.isVisible().catch(() => false)) {
+  // The button appears once the balance is read and is zero.
+  if ((await read(Q.usdc, 'balanceOf', [twin])) === 0n) {
+    await usdcBtn.waitFor({ timeout: 30_000 });
     await usdcBtn.click();
     for (let i = 0; i < 60 && (await read(Q.usdc, 'balanceOf', [twin])) === 0n; i++) await page.waitForTimeout(1500);
   }
