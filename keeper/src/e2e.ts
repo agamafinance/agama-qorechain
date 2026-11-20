@@ -237,12 +237,12 @@ const held = await read<bigint>(Q.vault, Vault, "balanceOf", [twin]);
 const exitShares = held / 2n;
 const snapBefore = await snapshot();
 const usdcBefore = await read<bigint>(Q.usdc, Usdc, "balanceOf", [twin]);
+// Valued before it is sent: a claim the buffer covers is paid, and deleted, inside the transaction that makes it.
+const owed = await read<bigint>(Q.vault, Vault, "previewRedeem", [exitShares]);
 await native("request redeem", [call(Q.vault, Vault, "requestRedeem", [exitShares, twin, twin])], 1_500_000);
 await sleep(3_000);
 const ids = await read<bigint[]>(Q.vault, Vault, "requestsOf", [twin]);
 const id = ids[ids.length - 1];
-const req = await read<readonly [Address, Address, bigint, bigint]>(Q.vault, Vault, "redemptions", [id]);
-const owed = req[3];
 check("exit queued at today's price", owed > snapBefore.liquid || owed > 0n, `${usd(owed)} for claim #${id}`);
 const s2 = await snapshot();
 const short = s2.pending > s2.idle ? s2.pending - s2.idle : 0n;
@@ -253,7 +253,7 @@ if (short > 0n) {
 await settleQueue();
 await sleep(3_000);
 const paid = (await read<bigint>(Q.usdc, Usdc, "balanceOf", [twin])) - usdcBefore;
-check("queue paid the lender in full", paid >= owed, `${usd(paid)}`);
+check("queue paid the lender in full", paid >= owed && paid - owed <= owed / 10_000n + 2n, `${usd(paid)}`);
 
 // ---- 8. the keeper's gas tank: a spending rule the chain enforces, not the keeper's code ----
 console.log("\n8. gas tank");
