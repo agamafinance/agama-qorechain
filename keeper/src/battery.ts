@@ -317,6 +317,11 @@ check("the keeper sent the new money to Ethereum and every burn was minted there
 const s2 = await read<any>(Q.vault, Vault, "snapshot");
 check("the vault kept its 10% buffer", s2.liquid * 1000n >= s2.totalAssets * 95n && s2.liquid * 100n <= s2.totalAssets * 12n, `${usd(s2.liquid)} of ${usd(s2.totalAssets)}`);
 const issuer = artifact("AbfAssetIssuer").abi;
+// The book wires the new cash a tick after it arrives: wait for it rather than read it in the same block.
+await until("the issuer to wire the subscription", async () => {
+  const [c, b] = await Promise.all(["cash", "offChainAssets"].map((f) => eth.readContract({ address: E.issuer, abi: issuer, functionName: f }))) as [bigint, bigint];
+  return b * 100n >= (c + b) * 85n;
+}, 10 * 60_000);
 const [cash, book, maxOff] = await Promise.all(["cash", "offChainAssets", "maxOffChainBps"].map((f) => eth.readContract({ address: E.issuer, abi: issuer, functionName: f }))) as [bigint, bigint, number];
 check("the issuer wired up to its 90% cap to the book", book * 10_000n <= (cash + book) * BigInt(maxOff) + 1_000_000n && book * 100n >= (cash + book) * 85n, `book ${usd(book)}, cash ${usd(cash)}`);
 
@@ -364,11 +369,13 @@ console.log(`\n== ${phase}`);
 const small = ok.slice(0, 3), large = ok.slice(3);
 const s3 = await read<any>(Q.vault, Vault, "snapshot");
 const usdcBefore = new Map(await Promise.all(ok.map(async (l) => [l.twin, await read<bigint>(Q.usdc, Usdc, "balanceOf", [l.twin])] as const)));
+// Instant withdrawals first, together: sent in the same block as the queued exits, they lose the race. A queued
+// claim settles from the buffer as soon as it is made (FIFO), and the battery's first run found exactly that.
+await Promise.all(small.map(async (l) => {
+  const shares = l.shares! / 10n;
+  await native(l, "instant withdrawal", [call(l, Q.vault, Vault, "redeem", [shares, l.twin, l.twin])], 900_000);
+}));
 await Promise.all([
-  ...small.map(async (l) => {
-    const shares = l.shares! / 10n;
-    await native(l, "instant withdrawal", [call(l, Q.vault, Vault, "redeem", [shares, l.twin, l.twin])], 900_000);
-  }),
   ...large.map(async (l) => {
     const shares = (l.shares! * 9n) / 10n;
     await native(l, "queued exit", [call(l, Q.vault, Vault, "requestRedeem", [shares, l.twin, l.twin])], 1_200_000);
