@@ -13,6 +13,8 @@ import { NavChart } from '@/components/NavChart';
 import { Route } from '@/components/Route';
 import { CreditVaults } from '@/components/CreditVaults';
 import { BridgeSecurity } from '@/components/BridgeSecurity';
+import { Onboarding } from '@/components/Onboarding';
+import { QOR_FAUCET } from '@/lib/chains';
 import { DASH, fmt, parse, raw, usd } from '@/lib/format';
 import { netApy, precisePrice, useActions, useActivity, useBook, useUser, useVault } from '@/lib/protocol';
 import { useWallet } from '@/lib/wallet';
@@ -54,6 +56,8 @@ export default function EarnPage() {
   const instant = side === 'withdraw' && user.maxRedeem !== undefined && amt <= user.maxRedeem;
   const allowed = user.eligible === true;
   const blocked = side === 'deposit' && !!user.address && user.eligible === false;
+  // Not verified yet (and nothing to withdraw): the card is the onboarding.
+  const onboarding = !!user.address && user.eligible === false && !(user.agusd && user.agusd > 0n);
 
   async function run(label: string, fn: () => Promise<unknown>, done: string) {
     setBusy(true);
@@ -121,8 +125,8 @@ export default function EarnPage() {
         }
       >
         <p className="mt-4 max-w-[660px] text-[15px] text-fg-muted">
-          A permissioned vault for approved lenders. Your KYC and the loan tape stay encrypted with ML-KEM-1024, and
-          every key that can move the money signs with ML-DSA-87.
+          Lend to real-world credit and earn its yield in one token, agUSD. For verified investors: your identity
+          and the loan files stay encrypted, and the vault is built to resist quantum computers.
         </p>
         <div className="mt-7 flex flex-wrap gap-8">
           <Stat label="Net APY" value={apy} sub="Target, after fee and buffer" />
@@ -147,13 +151,17 @@ export default function EarnPage() {
           <div className={`${card} flex flex-col`}>
             <div className="flex items-center justify-between">
               <h2 className="text-[17px] font-semibold text-fg">
-                {side === 'deposit' ? 'Deposit USDC' : 'Withdraw USDC'}
+                {onboarding ? 'Get verified to deposit' : side === 'deposit' ? 'Deposit USDC' : 'Withdraw USDC'}
               </h2>
               {vault?.paused && (
                 <span className="rounded-full bg-[#b4571f]/10 px-3 py-1 text-[12px] text-[#b4571f]">Paused</span>
               )}
             </div>
 
+            {onboarding ? (
+              <Onboarding />
+            ) : (
+            <>
             <Segmented
               value={side}
               onChange={(v) => {
@@ -166,7 +174,7 @@ export default function EarnPage() {
 
             <p className="mt-2 text-[12px] text-fg-muted">
               {side === 'deposit'
-                ? 'One QoreX signature, secp256k1 and ML-DSA-87: the approval, if needed, and the deposit travel together.'
+                ? 'One signature in QoreX. Your agUSD earns from the next block.'
                 : `Instant up to the buffer, ${usd(vault?.liquid)} right now. Above it, the exit burns your agUSD at today’s price and joins a first in, first out queue.`}
             </p>
 
@@ -200,28 +208,37 @@ export default function EarnPage() {
               )}
             </dl>
 
-            {blocked ? (
-              <Link href="/access" className={`mt-4 ${primaryBtn} flex items-center justify-center gap-2`}>
-                <ShieldCheck className="h-4 w-4" aria-hidden />
-                {user.member?.status === 'Pending' ? 'Application in review' : 'Get access to deposit'}
-              </Link>
-            ) : (
+            {side === 'deposit' && user.address && user.usdc === 0n && (
               <button
-                onClick={user.address ? go : connect}
-                disabled={busy || (!!user.address && (!enough || !!vault?.paused || (side === 'deposit' && !allowed)))}
-                className={`mt-4 ${primaryBtn}`}
+                type="button"
+                onClick={() => run('Signing in QoreX', () => act.faucet(), '10,000 test USDC is in your wallet.')}
+                disabled={busy}
+                className="mt-3 rounded-full border border-[#254839]/25 px-4 py-2 text-[13px] text-fg hover:bg-[#254839]/[0.06] disabled:opacity-45"
               >
-                {busy ? <Step text={status?.text} /> : label}
+                No USDC yet? Get 10,000 test USDC
               </button>
             )}
+
+            <button
+              onClick={user.address ? go : connect}
+              disabled={busy || (!!user.address && (!enough || !!vault?.paused || (side === 'deposit' && !allowed)))}
+              className={`mt-4 ${primaryBtn}`}
+            >
+              {busy ? <Step text={status?.text} /> : label}
+            </button>
             {!busy && <Status text={status?.text} error={status?.error} />}
 
             <p className="mt-auto pt-4 text-[12px] text-fg-muted">
-              Need mock USDC or QOR for gas?{' '}
-              <Link href="/faucet" className="underline hover:text-fg">The faucet tab</Link>. Queued exits and what you
-              hold are on{' '}
-              <Link href="/portfolio" className="underline hover:text-fg">the Portfolio tab</Link>.
+              {user.qor === 0n ? (
+                <>
+                  You need a little QOR for gas:{' '}
+                  <a href={QOR_FAUCET} target="_blank" rel="noreferrer" className="underline hover:text-fg">QoreChain faucet</a>.{' '}
+                </>
+              ) : null}
+              <Link href="/faucet" className="underline hover:text-fg">Faucet</Link>
             </p>
+            </>
+            )}
           </div>
         </div>
 
