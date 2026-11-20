@@ -25,7 +25,7 @@ export function Route({ vault, book, inflight }: { vault?: VaultState; book?: Bo
       logo: '/logos/usdc.svg',
       title: 'Burn and mint',
       what: 'CCTP V2 format · ML-DSA attested home.',
-      link: { label: 'QoreChain Bridge soon', href: 'https://docs.qorechain.io/user-guide/bridging-assets' },
+      link: { label: 'QoreChain Bridge (QCB) soon', href: 'https://docs.qorechain.io/user-guide/bridging-assets' },
       value: inflight,
       note: 'in flight between chains',
     },
