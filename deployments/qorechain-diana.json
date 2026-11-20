@@ -17,7 +17,6 @@
   "vault": "0x0ed07a6af9e1e78c0166a3c02133ac994268be5d",
   "messenger": "0x0afb58ce8aa5be74251e61e7b9404529d6087013",
   "allocator": "0x7e913de8003c0ad626fd2c44d56efea13c28fb17",
-  "dataRoom": "0x1c39681a25f1c9dca3f3a6621f5abbb629f574ef",
   "complianceModule": "0xebcb8d74fb8354c55dc750a7feaeed46d123b391",
   "fusd": "0x97143B771D34ddb9130b807b135Ae675A5a963CA",
   "fusdOnRamp": "0x8cecfcd4ccb825d877baee30c52153bc6828b712",
@@ -28,5 +27,9 @@
     "vaultExemptFees": true,
     "messengerRemote": true,
     "allocatorReceiver": true
-  }
+  },
+  "retired": {
+    "dataRoomV1": "0x1c39681a25f1c9dca3f3a6621f5abbb629f574ef"
+  },
+  "dataRoom": "0x06b89566a2eef09c964522445ba578dc710ea815"
 }
