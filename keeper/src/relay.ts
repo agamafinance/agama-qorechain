@@ -5,7 +5,8 @@
 //                           ML-DSA-87 at a sane gas cost
 //   Ethereum -> QoreChain   ML-DSA-87 over the messenger's `attestationMessage`, checked by pqcVerify against the
 //                           attester's key in QoreChain's registry
-import { decodeEventLog, keccak256, parseAbiItem, slice, type Address, type Hex, type PublicClient } from "viem";
+import { decodeEventLog, encodeAbiParameters, keccak256, parseAbiItem, slice, type Address, type Hex, type PublicClient } from "viem";
+import { MerkleWots, signMlDsa44 } from "./pqeth.js";
 import { privateKeyToAccount } from "viem/accounts";
 import { account } from "./accounts.js";
 import { E, Q, send } from "./config.js";
@@ -50,10 +51,31 @@ export async function scan(client: PublicClient, address: Address, from: number,
 
 const nonceOf = (m: Hex) => slice(m, 12, 44);
 
-/// secp256k1 attestation for the Ethereum leg.
+let wots: MerkleWots | undefined;
+const wotsSpent = new Set<number>();
+
+/// The Ethereum leg's attestation. On the hybrid messenger: the attester's secp256k1 signature AND a post-quantum
+/// proof over the messenger's `attestationDigest`, either ML-DSA-44 (FIPS 204, QoreChain's PQC kit) or a Merkle WOTS+
+/// one-time signature, whichever verifier the messenger holds. On the legacy messenger: secp256k1 alone.
 export async function attestForEthereum(message: Hex): Promise<Hex> {
   const signer = privateKeyToAccount((await account("attester")).privateKey as Hex);
-  return signer.sign({ hash: keccak256(message) });
+  if (!E.pq?.messenger) return signer.sign({ hash: keccak256(message) });
+  const messengerAbi = artifact("HybridAttestedMessenger").abi;
+  const digest = (await eth.readContract({ address: E.messenger, abi: messengerAbi, functionName: "attestationDigest", args: [message] })) as Hex;
+  const ecdsa = await signer.sign({ hash: digest });
+  const verifier = (await eth.readContract({ address: E.messenger, abi: messengerAbi, functionName: "pqVerifier" })) as Address;
+  let proof: Hex;
+  if (verifier.toLowerCase() === String(E.pq.wotsVerifier).toLowerCase()) {
+    wots ??= new MerkleWots(E.pq.wotsHeight ?? 10);
+    // One leaf per attestation, ever: the next one the chain has not seen, and never one this process already used.
+    let leaf = Number(await eth.readContract({ address: verifier, abi: artifact("MerkleWotsAttestationVerifier").abi, functionName: "nextLeaf" }));
+    while (wotsSpent.has(leaf)) leaf++;
+    wotsSpent.add(leaf);
+    proof = wots.sign(leaf, digest);
+  } else {
+    proof = signMlDsa44(digest);
+  }
+  return encodeAbiParameters([{ type: "bytes" }, { type: "bytes" }], [ecdsa, proof]);
 }
 
 /// ML-DSA-87 attestation for the QoreChain leg: 4,627 bytes, over the exact bytes the messenger checks.
@@ -75,7 +97,9 @@ export async function relayAll(): Promise<number> {
   for (const m of out.messages) {
     const used = await eth.readContract({ address: E.messenger, abi: messengerAbi(), functionName: "usedNonces", args: [nonceOf(m)] });
     if (used) continue;
-    await send("sepolia", E.receiver, artifact("AgamaL1Receiver").abi, "relay", [m, await attestForEthereum(m)], { label: "relay to Ethereum" });
+    await send("sepolia", E.receiver, artifact("AgamaL1Receiver").abi, "relay", [m, await attestForEthereum(m)], {
+      label: E.pq?.messenger ? "relay to Ethereum (hybrid PQ)" : "relay to Ethereum", gas: 15_000_000n,
+    });
     done++;
   }
   // Rewind a little so a log the node had not indexed yet is read next time; nonces make that idempotent.
@@ -84,13 +108,23 @@ export async function relayAll(): Promise<number> {
 
   // Ethereum to QoreChain: returns, settled by the allocator into the vault, attested post-quantum.
   const back = await scan(eth as PublicClient, E.messenger, state.ethBlock, ETH_LOG_RANGE);
+  // Only returns from Agama's own receivers are the allocator's to settle; anything else burned towards QoreChain
+  // (a test burn, a message whose nonce was already spent) is skipped rather than retried forever.
+  const ours = new Set([E.receiver, E.legacy?.receiver, ...(E.retiredReceivers ?? [])].filter(Boolean).map((a: string) => a.toLowerCase()));
   for (const m of back.messages) {
     const used = await qore.readContract({ address: Q.messenger, abi: messengerAbi(), functionName: "usedNonces", args: [nonceOf(m)] });
     if (used) continue;
-    await send("qorechain", Q.allocator, artifact("CrossChainAllocator").abi, "settleReturn", [m, await attestForQoreChain(m)], {
-      label: "settle on QoreChain", gas: 1_500_000n,
-    });
-    done++;
+    // CCTP V2: the burn body starts at byte 148; its messageSender is the 32-byte word at body offset 100.
+    const sender = ("0x" + m.slice(2 + (148 + 100 + 12) * 2, 2 + (148 + 132) * 2)).toLowerCase();
+    if (!ours.has(sender)) continue;
+    try {
+      await send("qorechain", Q.allocator, artifact("CrossChainAllocator").abi, "settleReturn", [m, await attestForQoreChain(m)], {
+        label: "settle on QoreChain", gas: 1_500_000n,
+      });
+      done++;
+    } catch (e) {
+      console.log(`  ::warning:: return ${nonceOf(m).slice(0, 10)} not settled: ${(e as Error).message.split("\n")[0].slice(0, 160)}`);
+    }
   }
   save({ ...load(), ethBlock: Math.max(back.head - 20, state.ethBlock) });
   if (back.error) throw back.error;
