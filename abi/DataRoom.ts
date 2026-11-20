@@ -23,6 +23,19 @@ export const DataRoomAbi = [
   },
   {
     "type": "function",
+    "name": "PART_SIZE",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "QSBT",
     "inputs": [],
     "outputs": [
@@ -114,6 +127,16 @@ export const DataRoomAbi = [
           },
           {
             "name": "members",
+            "type": "uint32",
+            "internalType": "uint32"
+          },
+          {
+            "name": "parts",
+            "type": "uint32",
+            "internalType": "uint32"
+          },
+          {
+            "name": "partsPosted",
             "type": "uint32",
             "internalType": "uint32"
           },
@@ -227,6 +250,112 @@ export const DataRoomAbi = [
   },
   {
     "type": "function",
+    "name": "memberPosition",
+    "inputs": [
+      {
+        "name": "epoch",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "account",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "partBlock",
+    "inputs": [
+      {
+        "name": "epoch",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "part",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "partHash",
+    "inputs": [
+      {
+        "name": "epoch",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "part",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "partOf",
+    "inputs": [
+      {
+        "name": "epoch",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "account",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "member",
+        "type": "bool",
+        "internalType": "bool"
+      },
+      {
+        "name": "part",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "blockNumber",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "pqcMessage",
     "inputs": [
       {
@@ -298,9 +427,9 @@ export const DataRoomAbi = [
         "internalType": "address[]"
       },
       {
-        "name": "distribution",
-        "type": "bytes",
-        "internalType": "bytes"
+        "name": "partHashes",
+        "type": "bytes32[]",
+        "internalType": "bytes32[]"
       },
       {
         "name": "deadline",
@@ -309,6 +438,29 @@ export const DataRoomAbi = [
       },
       {
         "name": "signature",
+        "type": "bytes",
+        "internalType": "bytes"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "publishEpochPart",
+    "inputs": [
+      {
+        "name": "epoch",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "part",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "distribution",
         "type": "bytes",
         "internalType": "bytes"
       }
@@ -495,6 +647,31 @@ export const DataRoomAbi = [
   },
   {
     "type": "event",
+    "name": "EpochPart",
+    "inputs": [
+      {
+        "name": "epoch",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "part",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "distribution",
+        "type": "bytes",
+        "indexed": false,
+        "internalType": "bytes"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "EpochPublished",
     "inputs": [
       {
@@ -510,10 +687,10 @@ export const DataRoomAbi = [
         "internalType": "address[]"
       },
       {
-        "name": "distribution",
-        "type": "bytes",
+        "name": "partHashes",
+        "type": "bytes32[]",
         "indexed": false,
-        "internalType": "bytes"
+        "internalType": "bytes32[]"
       }
     ],
     "anonymous": false
@@ -623,6 +800,22 @@ export const DataRoomAbi = [
   },
   {
     "type": "error",
+    "name": "BadParts",
+    "inputs": [
+      {
+        "name": "members",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "parts",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "BadPqcSignature",
     "inputs": [
       {
@@ -656,12 +849,60 @@ export const DataRoomAbi = [
   },
   {
     "type": "error",
+    "name": "NoSuchPart",
+    "inputs": [
+      {
+        "name": "epoch",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "part",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "NotEligible",
     "inputs": [
       {
         "name": "account",
         "type": "address",
         "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "PartMismatch",
+    "inputs": [
+      {
+        "name": "signed",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "posted",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "PartPosted",
+    "inputs": [
+      {
+        "name": "epoch",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "part",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ]
   },

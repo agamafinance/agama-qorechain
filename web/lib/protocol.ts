@@ -218,7 +218,7 @@ const BookMarked = parseAbiItem('event NavReported(uint256 previous, uint256 cur
 const Subscribed = parseAbiItem('event Subscribed(uint256 assets, uint256 shares)');
 const Approved = parseAbiItem('event Approved(address indexed account, uint8 tier, uint64 expiresAt, bytes32 dossierHash, bytes letter)');
 const Rejected = parseAbiItem('event Rejected(address indexed account, bytes32 dossierHash, bytes letter)');
-const EpochPublished = parseAbiItem('event EpochPublished(uint256 indexed epoch, address[] members, bytes distribution)');
+const EpochPart = parseAbiItem('event EpochPart(uint256 indexed epoch, uint256 indexed part, bytes distribution)');
 const ReportPublished = parseAbiItem(
   'event ReportPublished(uint256 indexed index, uint256 indexed epoch, bytes32 indexed kind, bytes blob, bytes32 ciphertextCommitment, bytes32 plaintextCommitment)',
 );
@@ -410,15 +410,24 @@ export function useDataRoom() {
           };
         }),
       );
-      let current: { epoch: bigint; members: number; distribution?: Hex; isMember: boolean } | null = null;
+      // The epoch key comes in parts of eight readers; this lender reads only its own part.
+      let current: { epoch: bigint; members: number; parts: number; distribution?: Hex; isMember: boolean } | null = null;
       if (epochCount > 0n) {
         const e = epochCount - 1n;
         const ep = await read<any>(QORECHAIN.dataRoom, DataRoomAbi, 'epochs', [e]);
-        const isMember = account ? await read<boolean>(QORECHAIN.dataRoom, DataRoomAbi, 'isMember', [e, account.evm]) : false;
-        const logs = await qore
-          .getLogs({ address: QORECHAIN.dataRoom, event: EpochPublished, args: { epoch: e }, fromBlock: ep.blockNumber, toBlock: ep.blockNumber })
-          .catch(() => []);
-        current = { epoch: e, members: ep.members, distribution: (logs.at(-1) as any)?.args.distribution, isMember };
+        let distribution: Hex | undefined;
+        let isMember = false;
+        if (account) {
+          const [member, part, at] = await read<readonly [boolean, bigint, bigint]>(QORECHAIN.dataRoom, DataRoomAbi, 'partOf', [e, account.evm]);
+          isMember = member;
+          if (member && at > 0n) {
+            const logs = await qore
+              .getLogs({ address: QORECHAIN.dataRoom, event: EpochPart, args: { epoch: e, part }, fromBlock: at, toBlock: at })
+              .catch(() => []);
+            distribution = (logs.at(-1) as any)?.args.distribution;
+          }
+        }
+        current = { epoch: e, members: ep.members, parts: ep.parts, distribution, isMember };
       }
       return { epochCount, reportCount, reports, current };
     },

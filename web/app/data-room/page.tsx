@@ -84,7 +84,7 @@ export default function DataRoomPage() {
         </p>
         <div className="mt-7 flex flex-wrap gap-8">
           <Stat label="Epoch" value={current ? String(current.epoch) : '-'} sub="A new key at every membership change" />
-          <Stat label="Readers" value={current ? `${current.members} + auditor` : '-'} sub="Approved lenders, sealed to" />
+          <Stat label="Readers" value={current ? `${current.members} + auditor` : '-'} sub={current ? `Key sealed in ${current.parts} parts of up to 8` : 'Approved lenders, sealed to'} />
           <Stat label="Sealed tapes" value={room.data ? String(room.data.reportCount) : '-'} sub="Signed with ML-DSA-87" />
         </div>
       </Hero>
@@ -116,11 +116,13 @@ export default function DataRoomPage() {
                 </Link>
               )}
             </div>
+          ) : !current.distribution ? (
+            <p className="text-[14px] text-fg-muted">You are a reader of epoch {String(current.epoch)}; its key is being posted, part by part.</p>
           ) : !epochKey ? (
             <div className="flex flex-wrap items-center gap-4">
               <ShieldCheck className="h-6 w-6 text-[#2f7d5b]" aria-hidden />
               <p className="flex-1 text-[14px] text-fg">
-                You are a reader of epoch {String(current.epoch)}. Its key is sealed to yours in a {kb(current.distribution)} envelope.
+                You are a reader of epoch {String(current.epoch)}. Its key is sealed to yours in a {kb(current.distribution)} envelope, one of {current.parts}.
               </p>
               <button type="button" onClick={unlock} className="rounded-full bg-[#254839] px-5 py-2.5 text-[14px] text-[#fdf8ed]">
                 <LockOpen className="mr-2 inline h-4 w-4" aria-hidden />
