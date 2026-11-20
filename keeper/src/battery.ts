@@ -146,9 +146,9 @@ if (toFund.length) {
   const op = (await import("./accounts.js")).account;
   const from = (await op("operator")).cosmos;
   await sendNative("operator", toFund.map((l) => ({
-    typeUrl: "/cosmos.bank.v1beta1.MsgSend", value: { fromAddress: from, toAddress: l.address, amount: [{ denom: "uqor", amount: "2500000" }] },
+    typeUrl: "/cosmos.bank.v1beta1.MsgSend", value: { fromAddress: from, toAddress: l.address, amount: [{ denom: "uqor", amount: "1600000" }] },
   })), "hybrid", 200_000 + 60_000 * toFund.length);
-  console.log(`  funded ${toFund.length} lenders with 2.5 QOR each from the operator`);
+  console.log(`  funded ${toFund.length} lenders with 1.6 QOR each from the operator`);
   await sleep(4_000);
 }
 {
