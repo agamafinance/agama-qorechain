@@ -60,6 +60,22 @@ export async function connectQorex(): Promise<Account> {
   return { address: key.bech32Address, evm: evm.toLowerCase() as Hex, owner, name: key.name };
 }
 
+/**
+ * Runs a QoreX request; if QoreX answers that it is locked (it locks itself after a while, or when another tab
+ * locked it), asks it to connect, which opens its unlock screen, then runs the same request once more. A locked
+ * QoreX refuses signing requests outright but answers a connection request with the unlock screen.
+ */
+export async function withUnlock<T>(request: () => Promise<T>): Promise<T> {
+  try {
+    return await request();
+  } catch (e) {
+    const n = qorex();
+    if (!n || !/locked/i.test(String((e as Error)?.message ?? e))) throw e;
+    await n.enable(CHAIN);
+    return request();
+  }
+}
+
 /** Hands `messages` to QoreX as one transaction: it shows them, hybrid-signs and broadcasts. */
 export async function signAndBroadcast(messages: { typeUrl: string; value: Uint8Array }[], memo: string, gasLimit: number): Promise<QorexResult> {
   const n = qorex();
@@ -68,7 +84,7 @@ export async function signAndBroadcast(messages: { typeUrl: string; value: Uint8
   const request = { chainId: CHAIN, messages, memo, gasLimit: Math.min(gasLimit, 5_000_000) };
   let res: QorexResult;
   try {
-    res = await qorexSignAndBroadcast(request, { native: n });
+    res = await withUnlock(() => qorexSignAndBroadcast(request, { native: n }));
   } catch (e) {
     // A load-balanced node can still report the previous account sequence right after a transaction. Nothing was
     // spent: wait for the next blocks and ask once more.
@@ -87,7 +103,7 @@ export type MessageSignature = { signatureType: string; classical: { keyType: st
 export async function signArbitrary(signer: string, data: string): Promise<MessageSignature> {
   const n = qorex() as unknown as { signArbitrary?: (c: string, s: string, d: string) => Promise<MessageSignature> } | null;
   if (!n?.signArbitrary) throw new Error('Update QoreX: this version cannot sign a message');
-  return n.signArbitrary(CHAIN, signer, data);
+  return withUnlock(() => n.signArbitrary!(CHAIN, signer, data));
 }
 
 /**
@@ -97,7 +113,7 @@ export async function signArbitrary(signer: string, data: string): Promise<Messa
 export async function keySignature(message: string): Promise<Hex> {
   const n = qorex();
   if (!n) throw new Error('QoreX is not installed');
-  const { bech32Address } = await n.getKey(CHAIN);
+  const { bech32Address } = await withUnlock(() => n.getKey(CHAIN));
   const sig = await signArbitrary(bech32Address, message);
   return bytesToHex(Uint8Array.from(atob(sig.classical.signature), (c) => c.charCodeAt(0)));
 }
