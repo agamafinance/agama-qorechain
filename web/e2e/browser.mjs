@@ -1,6 +1,6 @@
 // Browser end to end: the real app, the official QoreX test double (@qorechain/qorex-wallet-mock: real hybrid
 // secp256k1 + ML-DSA-87 signing, real broadcast to qorechain-diana) and on-chain assertions after every step.
-// The lender is the coin-60 account index 6 of the funding mnemonic (keeper `tsx src/evmlender.ts 6` prepares it).
+// The lender is the usual (coin 118) QoreX account index 7 of the funding mnemonic (keeper `tsx src/relay-setup.ts 7`).
 // The keeper must be running (keeper: `npm run loop`): it is the compliance officer and the data room manager.
 //
 //   npm run build && npm start &      # port 3034
@@ -18,7 +18,7 @@ const mnemonic = process.env.QORE_FUNDER_MNEMONIC ?? (existsSync(file) ? readFil
 if (!mnemonic) throw new Error('set QORE_FUNDER_MNEMONIC');
 const SHOTS = new URL('./shots/', import.meta.url).pathname;
 // The lender's QoreSeal seed survives between runs the way a user's backup file does (gitignored).
-const SEED_FILE = new URL(`./.lender-seed-${process.env.LENDER_INDEX ?? 6}`, import.meta.url).pathname;
+const SEED_FILE = new URL(`./.lender-seed-${process.env.LENDER_INDEX ?? 7}`, import.meta.url).pathname;
 mkdirSync(SHOTS, { recursive: true });
 
 const evm = createPublicClient({ transport: http('https://evm-testnet.qore.host') });
@@ -46,7 +46,7 @@ const assert = (c, m) => {
   if (!c) throw new Error(`assertion failed: ${m}`);
 };
 
-const mock = createQorexMock({ profile: 'planned', mnemonic, accountIndex: Number(process.env.LENDER_INDEX ?? 6), chainId: 'qorechain-diana', rest: `${BASE}/api/rest` });
+const mock = createQorexMock({ profile: 'planned', mnemonic, accountIndex: Number(process.env.LENDER_INDEX ?? 7), chainId: 'qorechain-diana', rest: `${BASE}/api/rest` });
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1440, height: 1400 } });
 const errors = [];
@@ -61,7 +61,19 @@ await check('connect QoreX', async () => {
   await page.goto(`${BASE}/access`);
   await page.getByRole('button', { name: /Connect QoreX/ }).first().click();
   await page.waitForFunction(() => document.body.innerText.includes('Your encryption key'), null, { timeout: 30_000 });
-  twin = (await page.evaluate(async () => (await window.qorex.evm.request({ method: 'eth_accounts' }))[0])).toLowerCase();
+  twin = await page.evaluate(async () => {
+    const k = await window.qorex.native.getKey('qorechain-diana');
+    return '0x' + k.address.map((b) => b.toString(16).padStart(2, '0')).join('');
+  });
+  // The one-time setup: the EVM window is opened beforehand (keeper relay-setup.ts, as QoreX's own screen would);
+  // the grant to Agama's relayer is signed here, through the app, the way a lender does it.
+  const authorize = page.getByRole('button', { name: 'Authorize in QoreX' }).first();
+  await page.waitForResponse((r) => r.url().includes('/api/relay/status'), { timeout: 30_000 }).catch(() => {});
+  await page.waitForTimeout(1_500);
+  if (await authorize.isVisible({ timeout: 10_000 }).catch(() => false)) {
+    await authorize.click();
+    await authorize.waitFor({ state: 'detached', timeout: 90_000 });
+  }
   if (existsSync(SEED_FILE)) {
     const seed = readFileSync(SEED_FILE, 'utf8').trim();
     await page.evaluate(([k, v]) => localStorage.setItem(k, v), [`agama-qore:seal:${twin.toLowerCase()}`, seed]);
@@ -71,7 +83,7 @@ await check('connect QoreX', async () => {
   return twin;
 });
 
-await check('create the QoreSeal key in the browser and publish it (KEM registry + AccessRegistry)', async () => {
+await check('create the QoreSeal key in the browser and publish it (AccessRegistry, through the relayer)', async () => {
   const create = page.getByRole('button', { name: /Create my key/ });
   if (await create.isVisible()) {
     await create.click();

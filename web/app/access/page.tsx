@@ -1,4 +1,5 @@
 'use client';
+import { RelaySetup } from '@/components/RelaySetup';
 
 // Access: how a lender gets into a permissioned vault without putting its identity on a public chain.
 //
@@ -71,6 +72,7 @@ export default function AccessPage() {
       </Hero>
 
       <Panel>
+        <RelaySetup />
         {!account ? (
           <div className={`${card} text-center`}>
             <p className="text-[15px] text-fg-muted">Connect QoreX to apply. It signs every step with ML-DSA-87.</p>
@@ -167,7 +169,7 @@ function KeyStep({
     <StepCard n={1} title="Your encryption key" done={published}>
       <p className="text-[13px] text-fg-muted">
         A QoreSeal key pair, ML-KEM-1024 and X25519, made here. Its secret half never leaves this browser; the public
-        half goes on chain, in QoreChain&apos;s KEM registry and in Agama&apos;s, from your QoreX account.
+        half goes on chain, in Agama&apos;s registry, bound to your QoreX account.
       </p>
       {keys ? (
         <div className="mt-4 rounded-xl bg-[#254839]/[0.05] px-4 py-3 text-[13px]">

@@ -3,9 +3,9 @@
 // wait for the running keeper's decision, get test USDC from the card, deposit, then open the data room, which
 // decrypts by itself. Real hybrid signatures (official QoreX test double), real transactions on qorechain-diana.
 //
-//   node e2e/onboarding.mjs          LENDER_INDEX (default 5): a coin-60 account, prepared by keeper `tsx src/evmlender.ts 5`
-// QoreX 0.4 signs EVM transactions from coin-60 accounts and opens the EVM window in its approval; the test double's
-// `planned` profile signs them, and evmlender.ts opens the window it does not.
+//   node e2e/onboarding.mjs          LENDER_INDEX (default 8): a usual (coin 118) QoreX account, prepared by keeper
+//                                    `tsx src/relay-setup.ts 8` (QOR, ML-DSA-87 key, EVM window). The app signs the
+//                                    grant to the relayer, then every action is an intent the relayer executes.
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { chromium } from 'playwright';
@@ -16,7 +16,7 @@ const BASE = process.env.APP_URL ?? 'http://localhost:3034/qorechain';
 const Q = JSON.parse(readFileSync(new URL('../../deployments/qorechain-diana.json', import.meta.url), 'utf8'));
 const file = `${homedir()}/.config/qorechain/agama-funder.mnemonic`;
 const mnemonic = process.env.QORE_FUNDER_MNEMONIC ?? (existsSync(file) ? readFileSync(file, 'utf8').trim() : null);
-const SEED = new URL(`./.lender-seed-onb-${process.env.LENDER_INDEX ?? 5}`, import.meta.url).pathname;
+const SEED = new URL(`./.lender-seed-onb-${process.env.LENDER_INDEX ?? 8}`, import.meta.url).pathname;
 const evm = createPublicClient({ transport: http('https://evm-testnet.qore.host') });
 const abi = parseAbi(['function isEligible(address) view returns (bool)', 'function balanceOf(address) view returns (uint256)']);
 const read = (address, functionName, args) => evm.readContract({ address, abi, functionName, args });
@@ -36,7 +36,7 @@ const assert = (c, m) => {
   if (!c) throw new Error(`assertion failed: ${m}`);
 };
 
-const mock = createQorexMock({ profile: 'planned', mnemonic, accountIndex: Number(process.env.LENDER_INDEX ?? 5), chainId: 'qorechain-diana', rest: `${BASE}/api/rest` });
+const mock = createQorexMock({ profile: 'planned', mnemonic, accountIndex: Number(process.env.LENDER_INDEX ?? 8), chainId: 'qorechain-diana', rest: `${BASE}/api/rest` });
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1440, height: 1200 } });
 const errors = [];
@@ -55,7 +55,19 @@ await check('a new lender sees the verification in the deposit card', async () =
   await page.getByRole('button', { name: /Connect/ }).first().click();
   // A rerun finds the same lender already verified: the card is then the deposit form.
   await page.getByText(/Get verified to deposit|Deposit USDC/).first().waitFor({ timeout: 30_000 });
-  twin = (await page.evaluate(async () => (await window.qorex.evm.request({ method: 'eth_accounts' }))[0])).toLowerCase();
+  twin = await page.evaluate(async () => {
+    const k = await window.qorex.native.getKey('qorechain-diana');
+    return '0x' + k.address.map((b) => b.toString(16).padStart(2, '0')).join('');
+  });
+  // The one-time setup: the EVM window is opened beforehand (keeper relay-setup.ts, as QoreX's own screen would);
+  // the grant to Agama's relayer is signed here, through the app, the way a lender does it.
+  const authorize = page.getByRole('button', { name: 'Authorize in QoreX' }).first();
+  await page.waitForResponse((r) => r.url().includes('/api/relay/status'), { timeout: 30_000 }).catch(() => {});
+  await page.waitForTimeout(1_500);
+  if (await authorize.isVisible({ timeout: 10_000 }).catch(() => false)) {
+    await authorize.click();
+    await authorize.waitFor({ state: 'detached', timeout: 90_000 });
+  }
   // The lender's key survives between runs the way its backup file would.
   if (existsSync(SEED)) await page.evaluate(([k, v]) => localStorage.setItem(k, v), [`agama-qore:seal:${twin.toLowerCase()}`, readFileSync(SEED, 'utf8').trim()]);
   return twin;
@@ -87,7 +99,7 @@ await check('test USDC from the card, then a deposit, all on Earn', async () => 
   const before = await read(Q.vault, 'balanceOf', [twin]);
   await page.locator('input[inputmode="decimal"]').first().fill('1000');
   const btn = page.getByRole('button', { name: /Deposit and start earning/ });
-  if (!(await btn.isVisible({ timeout: 20_000 }).catch(() => false))) {
+  if (!(await btn.waitFor({ timeout: 60_000 }).then(() => true).catch(() => false))) {
     const card = await page.getByText('Deposit USDC').first().locator('xpath=../..').innerText();
     throw new Error(`deposit button not shown; card says: ${card.replace(/\s+/g, ' ').slice(0, 200)}`);
   }
