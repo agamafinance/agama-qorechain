@@ -17,7 +17,7 @@ Agama on QoreChain is ever encrypted to a classical key alone, and why no key th
 | Compliance officer | ML-DSA-87 + ML-KEM-1024 | read dossiers sealed to it; approve, reject, revoke | approve a dossier other than the one it read (the hash is signed); make a non-quantum-safe account eligible (the Asset Kit guard still decides) |
 | Data room manager (same account) | ML-DSA-87 | start epochs, publish tapes | include a member the registry does not approve right now |
 | Auditor | ML-KEM-1024 view key | read every dossier, letter, epoch and tape | change anything |
-| Bridge attester | ML-DSA-87 towards QoreChain, secp256k1 towards Ethereum | mint on QoreChain only what Ethereum burned towards the allocator; mint on Ethereum only what QoreChain burned towards the receiver | mint on QoreChain with its secp256k1 key alone |
+| Bridge attester | ML-DSA-87 towards QoreChain; secp256k1 + ML-DSA-44 (or Merkle WOTS+) towards Ethereum | mint on QoreChain only what Ethereum burned towards the allocator; mint on Ethereum only what QoreChain burned towards the receiver | mint anywhere with its secp256k1 key alone |
 | Operator | secp256k1 + ML-DSA-87, EVM window scoped to Agama's 6 contracts | start allocations (to the fixed receiver, above the reserve floor), relay messages and signed actions | choose where money goes, change anything, call any contract outside the scope |
 | Gas tank key | ed25519 authenticator on the treasury | send the treasury's QOR, 5 per payment, 15 a day, until expiry | anything else; the limits are the chain's, revocable by the treasury. Ed25519 is classical: a quantum adversary could spend this allowance, and only it |
 | Guardian | secp256k1 (classical) | pause deposits and exits | anything that costs a holder; unpausing needs the admin's PQ signature |
@@ -33,7 +33,7 @@ Agama on QoreChain is ever encrypted to a classical key alone, and why no key th
 | KYC dossiers | Sealed hybrid: ML-KEM-1024 and X25519 combined through SHA3-256. Harvested ciphertext stays safe as long as ML-KEM-1024 holds. |
 | Decision letters, epoch keys | ML-KEM-1024 alone (`mlkem` mode, chosen explicitly). Same. |
 | Loan tapes | AES-256-GCM under a 32-byte epoch key that is only ever sealed with ML-KEM-1024. Same. |
-| **The Ethereum leg** | **The weak point, by necessity.** Ethereum cannot verify ML-DSA-87 at a sane gas cost, so `EcdsaAttestedMessenger` checks a secp256k1 attestation, and the issuer and receiver are governed by classical keys. A quantum adversary who recovered the attester's secp256k1 key could forge a message *into* Ethereum, i.e. mint mock USDC to the receiver. QoreScan flags exactly this (`docs/cbom/dora.md`, ECDSA secp256k1 at `cctp/EcdsaAttestedMessenger.sol`). It cannot move money *out of* QoreChain or into the vault. Mitigations on the path to mainnet: Circle CCTP itself for the Ethereum leg, a ZK verifier of ML-DSA on Ethereum, or settling the book on QoreChain. |
+| The Ethereum leg | **Closed.** Ethereum now mints only with the attester's secp256k1 signature AND a post-quantum proof, ML-DSA-44 (FIPS 204) verified in Solidity or a hash-based Merkle WOTS+ signature; the messenger has no owner and rotates only by both. A recovered secp256k1 key mints nothing. See PQ_ETHEREUM.md. What stays classical there is the simulated issuer and the receiver's operator, which can only send money home to the fixed allocator. |
 | Public metadata | Who applied, when, envelope sizes, outcomes, amounts, balances. QoreSeal protects content, not metadata; this is stated in the app. |
 
 ## Classical attacks considered

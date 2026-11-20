@@ -20,7 +20,7 @@ no key a quantum computer could break can move the money.**
 Built for **Build Before Q-Day**, the QoreChain Developer Fest, on `qorechain-diana`, during the fest.
 Category: **Encrypted Apps**.
 
-> Live on the QoreChain and Ethereum Sepolia testnets. Tests: 170 Foundry, a 42-check battery of 8 lenders against the production keeper, 27 on-chain e2e checks, 9 browser e2e
+> Live on the QoreChain and Ethereum Sepolia testnets. Tests: 188 Foundry, a 42-check battery of 8 lenders against the production keeper, 27 on-chain e2e checks, 9 browser e2e
 > checks with the official QoreX test double.
 
 ## What happens to a lender
@@ -67,6 +67,7 @@ Category: **Encrypted Apps**.
 | Epochs and tapes | manager's ML-DSA-87 signature | `pqcVerify` |
 | NAV report | reporter's ML-DSA-87 signature (the reporter never sends a tx) | `pqcVerify`, plus interval and max-move guards |
 | Money coming home from Ethereum | attester's ML-DSA-87 signature over the CCTP message | `pqcVerify` in `PqAttestedMessenger` |
+| Money going out to Ethereum | attester's secp256k1 signature **and** ML-DSA-44 (FIPS 204), or a hash-based Merkle WOTS+ one-time signature | `HybridAttestedMessenger` on Sepolia: ML-DSA-44 verified in Solidity (ZKNox), ~8.3M gas; no owner, rotation only by both keys ([docs/PQ_ETHEREUM.md](docs/PQ_ETHEREUM.md)) |
 | Every admin power (config, roles, receivers, attester, officer, manager) | admin's ML-DSA-87 signature | `pqcVerify`; no function checks `msg.sender` for admin powers |
 | Keeper's own EVM transactions | EVM window **scoped** to Agama's six contracts | the chain's EVM lane admission |
 | Keeper's gas | an ed25519 **authenticator** linked to the treasury: `send` QOR only, 5 per payment, 15 a day, 29 days | the chain's spending rule (`abstractaccount`); the treasury's keys never reach the keeper |
@@ -89,7 +90,7 @@ Kit; QoreScan.
 
 ## Contracts
 
-`contracts/` · Solidity 0.8.28, Foundry, OpenZeppelin 5.4, Asset Kit. **170 tests** (unit, fuzz, 6 invariants).
+`contracts/` · Solidity 0.8.28, Foundry, OpenZeppelin 5.4, Asset Kit. **188 tests** (unit, fuzz, 6 invariants, post-quantum verifier vectors).
 
 | Contract | Chain | What it does |
 |---|---|---|
@@ -101,7 +102,10 @@ Kit; QoreScan.
 | `qore/AgamaComplianceModule` | QoreChain | Agama's sealed KYC as an ERC-3643 compliance module, for any permissioned token |
 | `qore/FestUsdOnRamp` | QoreChain | the fest's fUSD into the vault's dollar, one to one, and back |
 | `cctp/PqAttestedMessenger` | QoreChain | CCTP V2 burn-and-mint; inbound attestations are ML-DSA-87, checked by `pqcVerify` |
-| `cctp/EcdsaAttestedMessenger` | Ethereum | the same, secp256k1 attestations (Ethereum cannot verify ML-DSA-87 at a sane cost) |
+| `cctp/HybridAttestedMessenger` | Ethereum | the same, minting only with secp256k1 AND a post-quantum proof; no owner |
+| `cctp/pq/MlDsa44AttestationVerifier` | Ethereum | ML-DSA-44 (FIPS 204) in Solidity, on ZKNox's NIST verifier |
+| `cctp/pq/MerkleWotsAttestationVerifier` | Ethereum | Merkle WOTS+ (XMSS construction on keccak256), leaves spent once on chain |
+| `cctp/EcdsaAttestedMessenger` | Ethereum | the first, secp256k1-only Ethereum leg (retired, can no longer mint) |
 | `l1/AgamaL1Receiver`, `l1/AbfAssetIssuer` | Ethereum | agUSD's position and the simulated ABF issuer (allowlisted ERC-4626 note) |
 
 ### Addresses (v2)
@@ -120,9 +124,9 @@ QoreChain `qorechain-diana`, EVM chain id 9800:
 | FestUsdOnRamp | `0x8cecfcd4ccb825d877baee30c52153bc6828b712` |
 | Mock USDC | `0xa57f460cd0b27612e870963c20b9a27d11ddc608` |
 
-Ethereum Sepolia: receiver `0xe1badae5cfeced419e96a5225570343da0a005c8`, issuer
-`0xc0f1d29f7778a663f3502afe9acb467d065d993f`, messenger `0x7f8fa0b60361ac79024bf97a91f80ce2f662c17c`, mock USDC
-`0x1c8669b4e26a642d83748984d19dd5149af8c42b`. Everything is in `deployments/`.
+Ethereum Sepolia: hybrid messenger `0x90d29f6947d7bfbb828851eabdd4b78bf416b9ae`, receiver `0x0f66e08672786cba567729982570df9827b65d60`, ML-DSA-44 verifier
+`0xec11b12ad44f1cb4218015f86f5d2938fdcfeb8e`, Merkle WOTS+ verifier `0x717c5e2974e33096a8c84b6eec1bed36669a10d4`, issuer `0xc0f1d29f7778a663f3502afe9acb467d065d993f`,
+mock USDC `0x1c8669b4e26a642d83748984d19dd5149af8c42b`. Everything is in `deployments/`.
 
 ### Testnet accounts (`qor1`)
 
@@ -131,7 +135,7 @@ Ethereum Sepolia: receiver `0xe1badae5cfeced419e96a5225570343da0a005c8`, issuer
 | Operator, admin, guardian | `qor1qvc7jve4se89maha3sn2cedn589dvny6kskgly` | ML-DSA-87 (registered, PoP), scoped EVM window |
 | NAV reporter | `qor1gp6jjx2u7h6vrcv2h4rtsxp0al8h4mv37sn064` | ML-DSA-87 only signs |
 | Compliance officer, data room manager | `qor17q0jps4cvvg2x6xm3d2d44pev4shh4lx3x50re` | ML-DSA-87 + ML-KEM-1024 (KEM registry) |
-| Bridge attester | `qor122d73j03vxdzvwlpvzdze30s0gejn2q8g252h7` | ML-DSA-87 towards QoreChain, secp256k1 towards Ethereum |
+| Bridge attester | `qor122d73j03vxdzvwlpvzdze30s0gejn2q8g252h7` | ML-DSA-87 towards QoreChain; secp256k1 + ML-DSA-44 (or WOTS+) towards Ethereum |
 | Auditor (view key) | `qor1z0y4zrt2pkxmrgzzvh2cws5azlvf66zckvkx9w` | ML-KEM-1024 (KEM registry) |
 
 ## Run it
@@ -139,7 +143,7 @@ Ethereum Sepolia: receiver `0xe1badae5cfeced419e96a5225570343da0a005c8`, issuer
 ```bash
 git clone --recursive https://github.com/agamafinance/agama-qorechain && cd agama-qorechain
 
-cd contracts && forge test && cd ..            # 170 tests, mock precompiles locally
+cd contracts && forge test && cd ..            # 188 tests, mock precompiles locally
 
 cd web && pnpm install && pnpm build && pnpm start   # http://localhost:3034/qorechain
 ```
@@ -168,6 +172,7 @@ npx tsx src/e2e.ts                            # on-chain end to end (27 checks)
 ## Docs
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): contracts, keeper, app, and why each piece is where it is
+- [docs/PQ_ETHEREUM.md](docs/PQ_ETHEREUM.md): making the Ethereum leg quantum resilient, every option, measured
 - [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md): what each key can do, what a quantum adversary can and cannot do
 - [docs/E2E.md](docs/E2E.md): the end-to-end runs, on chain and in the browser
 - [docs/cbom](docs/cbom): QoreScan CBOM, DORA mapping, crypto-agility template
@@ -181,6 +186,6 @@ codec, the Ethereum leg, the web app's look) and
 an earlier QoreChain build (same team, MIT: `PqcAuth`, the mock
 precompiles, the hand-encoded protobuf, the QoreX provider and the fest-token conversions). QoreChain's kits:
 QoreChain SDK, QoreSeal, QoreSign, qorechain-pqc, QoreX integrations, Asset Kit (Apache-2.0), QoreScan.
-OpenZeppelin Contracts 5.4, forge-std, viem, Next.js.
+[ZKNox ETHDILITHIUM](https://github.com/ZKNoxHQ/ETHDILITHIUM) (MIT, the Solidity ML-DSA verifier), OpenZeppelin Contracts 5.4, forge-std, viem, Next.js.
 
 Licence: Apache-2.0.
