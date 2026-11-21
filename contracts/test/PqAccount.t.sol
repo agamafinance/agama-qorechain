@@ -107,7 +107,8 @@ contract PqAccountTest is Fixture {
         // dana signs a 1 USDC approval; the relayer submits it as an unlimited one
         PqAccount.Call[] memory signed = _call(address(qUsdc), abi.encodeCall(qUsdc.approve, (relayer, 1e6)));
         bytes memory sig = _sign(dana, _text(dana, signed, "Agama", deadline, 1));
-        PqAccount.Call[] memory forged = _call(address(qUsdc), abi.encodeCall(qUsdc.approve, (relayer, type(uint256).max)));
+        PqAccount.Call[] memory forged =
+            _call(address(qUsdc), abi.encodeCall(qUsdc.approve, (relayer, type(uint256).max)));
         vm.expectRevert(abi.encodeWithSelector(PqcAuth.BadPqcSignature.selector, dana));
         PqAccount(acc).execute(forged, "Agama", deadline, sig);
         // nor the summary the owner read
@@ -168,5 +169,74 @@ contract PqAccountTest is Fixture {
         factory.setTarget(address(qMessenger), true);
         vm.expectRevert(PqAccountFactory.NotAdmin.selector);
         factory.setExempt(carol, true, "no");
+    }
+
+    // ---- fuzzing: whatever the submitter tries, only what the owner signed runs ----
+
+    function testFuzz_onlyTheCurrentNonceRuns(uint256 n) public {
+        vm.assume(n != 0);
+        PqAccount.Call[] memory calls = _call(address(qUsdc), abi.encodeCall(qUsdc.faucet, ()));
+        uint256 deadline = block.timestamp + 300;
+        bytes memory sig = _sign(dana, _text(dana, calls, "Agama", deadline, n));
+        vm.prank(relayer);
+        vm.expectRevert(abi.encodeWithSelector(PqcAuth.BadPqcSignature.selector, dana));
+        factory.execute(dana, calls, "Agama", deadline, sig);
+    }
+
+    function testFuzz_theSubmitterCannotChangeTheAmount(uint256 signedAmount, uint256 submitted) public {
+        vm.assume(signedAmount != submitted);
+        _run(dana, _call(address(qUsdc), abi.encodeCall(qUsdc.faucet, ())), 0);
+        address acc = factory.accountOf(dana);
+        uint256 deadline = block.timestamp + 300;
+        PqAccount.Call[] memory signed =
+            _call(address(qUsdc), abi.encodeCall(qUsdc.approve, (address(vault), signedAmount)));
+        bytes memory sig = _sign(dana, _text(dana, signed, "Agama", deadline, 1));
+        PqAccount.Call[] memory forged =
+            _call(address(qUsdc), abi.encodeCall(qUsdc.approve, (address(vault), submitted)));
+        vm.prank(relayer);
+        vm.expectRevert(abi.encodeWithSelector(PqcAuth.BadPqcSignature.selector, dana));
+        PqAccount(acc).execute(forged, "Agama", deadline, sig);
+        vm.prank(relayer);
+        PqAccount(acc).execute(signed, "Agama", deadline, sig);
+        assertEq(qUsdc.allowance(acc, address(vault)), signedAmount);
+        assertEq(PqAccount(acc).nonce(), 2);
+    }
+
+    function testFuzz_aMessagePastItsDeadlineIsRefused(uint32 life, uint32 late) public {
+        uint256 deadline = block.timestamp + bound(life, 1, 1 days);
+        PqAccount.Call[] memory calls = _call(address(qUsdc), abi.encodeCall(qUsdc.faucet, ()));
+        bytes memory sig = _sign(dana, _text(dana, calls, "Agama", deadline, 0));
+        vm.warp(deadline + bound(late, 1, 365 days));
+        vm.expectRevert(abi.encodeWithSelector(PqAccount.Expired.selector, deadline));
+        factory.execute(dana, calls, "Agama", deadline, sig);
+    }
+
+    function testFuzz_aSignedCallToAnyOtherTargetIsRefused(address target, bytes calldata data) public {
+        vm.assume(target != address(qUsdc) && target != address(registry) && target != address(vault));
+        PqAccount.Call[] memory calls = _call(target, data);
+        uint256 deadline = block.timestamp + 300;
+        bytes memory sig = _sign(dana, _text(dana, calls, "Agama", deadline, 0));
+        vm.expectRevert(abi.encodeWithSelector(PqAccount.TargetNotAllowed.selector, target));
+        factory.execute(dana, calls, "Agama", deadline, sig);
+    }
+
+    function testFuzz_noOtherKeySignsForTheOwner(address forger, string calldata summary) public {
+        vm.assume(forger != dana);
+        _setPqKey(forger, true);
+        PqAccount.Call[] memory calls = _call(address(qUsdc), abi.encodeCall(qUsdc.faucet, ()));
+        uint256 deadline = block.timestamp + 300;
+        bytes memory sig = _sign(forger, _text(dana, calls, summary, deadline, 0));
+        vm.expectRevert(abi.encodeWithSelector(PqcAuth.BadPqcSignature.selector, dana));
+        factory.execute(dana, calls, summary, deadline, sig);
+    }
+
+    function testFuzz_theNonceCountsEveryExecution(uint8 count) public {
+        uint256 k = bound(count, 1, 24);
+        address acc = factory.accountOf(dana);
+        for (uint256 i; i < k; ++i) {
+            _run(dana, _call(address(qUsdc), abi.encodeCall(qUsdc.approve, (address(vault), i))), i);
+        }
+        assertEq(PqAccount(acc).nonce(), k);
+        assertEq(qUsdc.allowance(acc, address(vault)), k - 1);
     }
 }

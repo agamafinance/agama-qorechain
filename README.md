@@ -154,7 +154,8 @@ Everything below runs against the public testnets; nothing needs a key.
 
 ```bash
 git clone --recursive https://github.com/agamafinance/agama-qorechain && cd agama-qorechain
-cd contracts && forge test                     # 200 tests: unit, fuzz, 6 invariants, ML-DSA vectors
+cd contracts && forge test                     # 212 tests: unit, fuzz, 6 invariants, ML-DSA vectors
+FOUNDRY_PROFILE=deep forge test                # the long campaign: 50,000 inputs per fuzz test
 cd ../keeper && npm install
 npx tsx src/bridge-check.ts                    # 37/37 bridge messages rebuilt from calldata == their logs
 (cd ../web && pnpm install && node e2e/explorer.mjs "faucet=6A0A353778109E68E169FB1CB1C8EB02EE8CF61173424B9B5720D6D27CB52D58")
@@ -170,7 +171,7 @@ Latest full run, against the production keeper and the deployed app ([docs/batte
 
 | Suite | Result |
 |---|---|
-| Foundry (`contracts/test`) | **200/200**: unit, fuzz, 6 invariants, PqAccount, post-quantum verifier vectors |
+| Foundry (`contracts/test`) | **212/212**: unit, fuzz, 6 invariants, PqAccount, post-quantum verifier vectors. Deep profile: 20 fuzz tests × 50,000 inputs (1,000,000 cases) and 768,000 invariant calls, all green |
 | Protocol battery: 8 lenders at once, 6 approved, 2 refused, deposits, exits, queue, revocation, bridge | **42/42**, 31 lender transactions |
 | Protocol end to end, ending with the post-quantum-only checks | **30/30** |
 | PqAccount battery: 4 new lenders, approved and rejected, deposits, exits | **26/26** |
@@ -261,7 +262,7 @@ in [`deployments/`](deployments).
 ## Repository map
 
 ```
-contracts/   Solidity: vault, registry, data room, PqAccounts, CCTP V2 messengers, Ethereum leg (Foundry, 200 tests)
+contracts/   Solidity: vault, registry, data room, PqAccounts, CCTP V2 messengers, Ethereum leg (Foundry, 212 tests)
 keeper/      TypeScript: the keeper (compliance, data room, NAV, bridge, book), the relayer, every battery and audit
   src/native.ts      hybrid-signed native transactions (writeNative), retries that never send a message twice
   src/chain.ts       readers for native calls: bridge messages rebuilt, key parts, tapes, letters
@@ -289,7 +290,7 @@ abi/  deployments/  docs/
 
 ```bash
 git clone --recursive https://github.com/agamafinance/agama-qorechain && cd agama-qorechain
-cd contracts && forge test && cd ..                  # 200 tests, mock precompiles locally
+cd contracts && forge test && cd ..                  # 212 tests, mock precompiles locally
 cd web && pnpm install && pnpm build && pnpm start   # http://localhost:3034/qorechain
 cd ../keeper && npm install && npx tsx src/relayer.ts # the relayer, next to the app (the deployment runs it on Vercel)
 ```

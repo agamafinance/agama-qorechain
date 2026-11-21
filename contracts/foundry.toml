@@ -29,3 +29,11 @@ sepolia = "https://ethereum-sepolia-rpc.publicnode.com"
 
 [fmt]
 line_length = 120
+
+# The long campaign: FOUNDRY_PROFILE=deep forge test. 50,000 inputs per fuzz test, 1,000 invariant runs of 128 calls.
+[profile.deep.fuzz]
+runs = 50_000
+
+[profile.deep.invariant]
+runs = 1_000
+depth = 128

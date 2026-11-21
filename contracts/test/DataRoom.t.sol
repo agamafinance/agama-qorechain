@@ -62,9 +62,7 @@ contract DataRoomTest is Fixture {
         view
         returns (uint256 d, bytes memory s)
     {
-        return _signed(
-            address(dataRoom), manager, "publishReport", abi.encode(epoch, kind, keccak256(blob), cc, pc)
-        );
+        return _signed(address(dataRoom), manager, "publishReport", abi.encode(epoch, kind, keccak256(blob), cc, pc));
     }
 
     function _publishReport(uint256 epoch, bytes32 kind, uint256 seed) internal {
@@ -352,5 +350,42 @@ contract DataRoomTest is Fixture {
         (uint256 d, bytes memory s) = _signed(address(dataRoom), admin, "setManager", abi.encode(address(0)));
         vm.expectRevert(PqcGoverned.ZeroAddress.selector);
         dataRoom.setManager(address(0), d, s);
+    }
+
+    // ---- fuzzing: the manager's key, and only what it signed ----
+
+    function testFuzz_noOtherKeyPublishesAnEpoch(address forger) public {
+        vm.assume(forger != manager);
+        _setPqKey(forger, true);
+        address[] memory m = _members2();
+        bytes memory dist = _envelope(128, 0);
+        uint256 d = vm.getBlockTimestamp() + 1 hours;
+        bytes memory s = _signedBy(
+            forger,
+            address(dataRoom),
+            manager,
+            "publishEpoch",
+            abi.encode(uint256(0), keccak256(abi.encode(m)), keccak256(abi.encode(_one(dist)))),
+            d
+        );
+        vm.expectRevert(abi.encodeWithSelector(PqcAuth.BadPqcSignature.selector, manager));
+        dataRoom.publishEpoch(0, m, _one(dist), d, s);
+    }
+
+    function testFuzz_aReportBindsBothCommitments(bytes32 cc, bytes32 pc, uint256 seed) public {
+        _publishEpoch(0, _members2());
+        bytes memory blob = _batch(120, seed);
+        bytes32 realCc = keccak256(blob);
+        bytes32 realPc = keccak256(abi.encode("plain", seed));
+        (uint256 d, bytes memory s) = _reportSig(0, "tape", blob, realCc, realPc);
+        if (cc != realCc) {
+            vm.expectRevert(abi.encodeWithSelector(PqcAuth.BadPqcSignature.selector, manager));
+            dataRoom.publishReport(0, "tape", blob, cc, realPc, d, s);
+        }
+        if (pc != realPc) {
+            vm.expectRevert(abi.encodeWithSelector(PqcAuth.BadPqcSignature.selector, manager));
+            dataRoom.publishReport(0, "tape", blob, realCc, pc, d, s);
+        }
+        dataRoom.publishReport(0, "tape", blob, realCc, realPc, d, s);
     }
 }

@@ -219,13 +219,11 @@ contract AccessRegistryTest is Fixture {
     function test_approveNeedsAPendingDossier() public {
         uint64 exp = uint64(vm.getBlockTimestamp() + 365 days);
         (uint256 d, bytes memory s) = _approveSig(dave, 1, exp, bytes32(0), "letter");
-        vm.expectRevert(
-            abi.encodeWithSelector(AccessRegistry.NotPending.selector, dave, AccessRegistry.Status.None)
-        );
+        vm.expectRevert(abi.encodeWithSelector(AccessRegistry.NotPending.selector, dave, AccessRegistry.Status.None));
         registry.approve(dave, 1, exp, bytes32(0), "letter", d, s);
 
         // Already approved: a second approval of the same dossier is refused.
-        (, , , , , , bytes32 h) = registry.members(alice);
+        (,,,,,, bytes32 h) = registry.members(alice);
         (d, s) = _approveSig(alice, 1, exp, h, "letter");
         vm.expectRevert(
             abi.encodeWithSelector(AccessRegistry.NotPending.selector, alice, AccessRegistry.Status.Approved)
@@ -366,8 +364,7 @@ contract AccessRegistryTest is Fixture {
     function test_setComplianceOfficerNeedsTheAdmin() public {
         _setPqKey(carol, true);
         uint256 d = vm.getBlockTimestamp() + 1 hours;
-        bytes memory s =
-            _signedBy(officer, address(registry), admin, "setComplianceOfficer", abi.encode(carol), d);
+        bytes memory s = _signedBy(officer, address(registry), admin, "setComplianceOfficer", abi.encode(carol), d);
         vm.expectRevert(abi.encodeWithSelector(PqcAuth.BadPqcSignature.selector, admin));
         registry.setComplianceOfficer(carol, d, s);
 
@@ -384,8 +381,7 @@ contract AccessRegistryTest is Fixture {
     }
 
     function test_setComplianceOfficerRefusesZero() public {
-        (uint256 d, bytes memory s) =
-            _signed(address(registry), admin, "setComplianceOfficer", abi.encode(address(0)));
+        (uint256 d, bytes memory s) = _signed(address(registry), admin, "setComplianceOfficer", abi.encode(address(0)));
         vm.expectRevert(PqcGoverned.ZeroAddress.selector);
         registry.setComplianceOfficer(address(0), d, s);
     }
@@ -395,5 +391,57 @@ contract AccessRegistryTest is Fixture {
         new AccessRegistry(address(0), officer, hybridGuard);
         vm.expectRevert(PqcGoverned.ZeroAddress.selector);
         new AccessRegistry(admin, address(0), hybridGuard);
+    }
+
+    // ---- fuzzing: the officer's key, and only what it signed ----
+
+    function testFuzz_noOtherKeyApproves(address forger) public {
+        vm.assume(forger != officer);
+        _setPqKey(forger, true);
+        bytes32 h = _file(dave, 1);
+        uint64 exp = uint64(vm.getBlockTimestamp() + 365 days);
+        uint256 d = vm.getBlockTimestamp() + 1 hours;
+        bytes memory s = _signedBy(
+            forger, address(registry), officer, "approve", abi.encode(dave, uint8(1), exp, h, keccak256("letter")), d
+        );
+        vm.expectRevert(abi.encodeWithSelector(PqcAuth.BadPqcSignature.selector, officer));
+        registry.approve(dave, 1, exp, h, "letter", d, s);
+        assertFalse(registry.isEligible(dave));
+    }
+
+    function testFuzz_anyChangedFieldVoidsTheApproval(uint8 tier, uint64 extra, bytes calldata letter) public {
+        bytes32 h = _file(dave, 1);
+        uint64 exp = uint64(vm.getBlockTimestamp() + 365 days);
+        (uint256 d, bytes memory s) = _approveSig(dave, 1, exp, h, "letter");
+        if (tier != 1) {
+            vm.expectRevert(abi.encodeWithSelector(PqcAuth.BadPqcSignature.selector, officer));
+            registry.approve(dave, tier, exp, h, "letter", d, s);
+        }
+        uint64 later = exp + uint64(bound(extra, 1, 3650 days));
+        vm.expectRevert(abi.encodeWithSelector(PqcAuth.BadPqcSignature.selector, officer));
+        registry.approve(dave, 1, later, h, "letter", d, s);
+        if (keccak256(letter) != keccak256("letter")) {
+            vm.expectRevert(abi.encodeWithSelector(PqcAuth.BadPqcSignature.selector, officer));
+            registry.approve(dave, 1, exp, h, letter, d, s);
+        }
+        assertFalse(registry.isEligible(dave));
+        registry.approve(dave, 1, exp, h, "letter", d, s);
+        assertTrue(registry.isEligible(dave));
+    }
+
+    function testFuzz_onlyAQoreSealEnvelopeOfTheRightSizeIsFiled(bytes calldata env) public {
+        bool ok = env.length >= 64 && env.length <= 16_384 && bytes4(env[:4]) == bytes4("QSEL");
+        vm.prank(dave);
+        if (!ok) vm.expectRevert(AccessRegistry.BadEnvelope.selector);
+        registry.fileDossier(env);
+        if (ok) assertEq(registry.dossier(dave), env);
+    }
+
+    function testFuzz_onlyAnMlKem1024KeyIsPublished(uint16 length) public {
+        uint256 n = bound(length, 0, 4_000);
+        bytes memory k = new bytes(n);
+        vm.prank(dave);
+        if (n != 1568) vm.expectRevert(abi.encodeWithSelector(AccessRegistry.BadEncryptionKey.selector, n));
+        registry.publishEncryptionKey(k);
     }
 }
