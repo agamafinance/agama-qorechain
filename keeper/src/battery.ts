@@ -154,7 +154,17 @@ if (toFund.length) {
   console.log(`  funded ${toFund.length} lenders with 1.6 QOR each from the operator`);
   await sleep(4_000);
 }
+// The fest's fUSD comes only from its faucet (a person signs in to the dashboard): when the funding account has none
+// left, the fUSD legs are skipped and say so, instead of failing the battery.
+let fusdAvailable = false;
 {
+  const { client, address } = await treasuryClient(0);
+  const fusdDenom = `erc20:${Q.fusd}`;
+  const bal = (await (await fetch(`${REST}/cosmos/bank/v1beta1/spendable_balances/${address}/by_denom?denom=${fusdDenom}`, { headers: { "user-agent": "curl/8.7.1" } })).json()) as any;
+  fusdAvailable = BigInt(bal.balance?.amount ?? "0") >= 100_000_000n;
+  if (!fusdAvailable) console.log("SKIP  treasury sends 50 fest fUSD to two lenders: the funding account has no fest fUSD left (claim it at the fest faucet)");
+}
+if (fusdAvailable) {
   const { client, address } = await treasuryClient(0);
   const fusdDenom = `erc20:${Q.fusd}`;
   const res: any = await client.signAndBroadcast(
@@ -281,7 +291,8 @@ const fair = ok.every((l) => {
 check("each lender got agUSD worth what it paid, to 0.1%", fair, `price ${formatUnits(snap1.sharePrice, 6)}`);
 check("vault assets grew by the deposits", snap1.totalAssets - snap0.totalAssets >= (total * 999n) / 1_000n, `${usd(total)} in`);
 
-{
+if (!fusdAvailable) console.log("SKIP  50 fest fUSD into the vault's dollar: no fest fUSD to test with");
+else {
   const l = ok[0];
   const before = await read<bigint>(Q.usdc, Usdc, "balanceOf", [l.twin]);
   await native(l, "fUSD convert + on-ramp", [

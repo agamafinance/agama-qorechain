@@ -179,6 +179,7 @@ check("a stranger cannot be sent agUSD (maxDeposit 0)", (await read<bigint>(Q.va
 console.log("\n4b. lend the fest's fUSD");
 const FUSD = Q.fusd as Address;
 const FUSD_IN = 100_000_000n;
+let fusdReady = true;
 {
   // Each run spends 100 fest fUSD; when the lender's bank runs dry, the operator (which holds the rest) tops it up.
   const r = (await (await fetch(`${REST}/cosmos/bank/v1beta1/spendable_balances/${lender}/by_denom?denom=erc20:${FUSD}`, { headers: { "user-agent": "curl/8.7.1" } })).json()) as any;
@@ -188,11 +189,15 @@ const FUSD_IN = 100_000_000n;
     const o = (await (await fetch(`${REST}/cosmos/bank/v1beta1/spendable_balances/${op}/by_denom?denom=erc20:${FUSD}`, { headers: { "user-agent": "curl/8.7.1" } })).json()) as any;
     // Up to two runs' worth, and never more than the operator holds (the fest's faucet is the only source).
     const give = [FUSD_IN * 2n, BigInt(o.balance?.amount ?? "0")].reduce((a, b) => (a < b ? a : b));
-    if (give + have < FUSD_IN) throw new Error(`not enough fest fUSD left: the lender has ${have}, the operator ${give}`);
-    await (await import("./native.js")).sendNative("operator", [{ typeUrl: "/cosmos.bank.v1beta1.MsgSend", value: { fromAddress: op, toAddress: lender, amount: [{ denom: `erc20:${FUSD}`, amount: String(give) }] } }], "hybrid", 250_000);
+    if (give + have < FUSD_IN) {
+      // The fest's fUSD comes only from its faucet, which a person signs in to: skipped, and said so.
+      console.log(`SKIP  fest fUSD on-ramp: no fest fUSD left (lender ${have}, operator ${give}); claim it at the fest faucet`);
+      fusdReady = false;
+    } else await (await import("./native.js")).sendNative("operator", [{ typeUrl: "/cosmos.bank.v1beta1.MsgSend", value: { fromAddress: op, toAddress: lender, amount: [{ denom: `erc20:${FUSD}`, amount: String(give) }] } }], "hybrid", 250_000);
     await sleep(5_000);
   }
 }
+if (fusdReady) {
 const usdcBeforeRamp = await read<bigint>(Q.usdc, Usdc, "balanceOf", [twin]);
 await native("fUSD: convert + on-ramp", [
   { typeUrl: CONVERT_COIN_TYPE_URL, value: { coin: { denom: `erc20:${FUSD}`, amount: FUSD_IN.toString() }, receiver: twin, sender: lender } },
@@ -202,6 +207,7 @@ await native("fUSD: convert + on-ramp", [
 await sleep(3_000);
 const ramped = (await read<bigint>(Q.usdc, Usdc, "balanceOf", [twin])) - usdcBeforeRamp;
 check("100 fest fUSD became 100 mock USDC, one hybrid-signed transaction", ramped === FUSD_IN, `${usd(ramped)}`);
+}
 
 // ---- 5. allocation and the route to Ethereum ----
 console.log("\n5. allocate above the floor and cross to Ethereum");
