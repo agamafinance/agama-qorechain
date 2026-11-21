@@ -56,10 +56,23 @@ const shot = (name) => page.screenshot({ path: `${SHOTS}${name}.png`, fullPage: 
 const waitText = (text, timeout = 120_000) => page.getByText(text, { exact: false }).first().waitFor({ timeout });
 
 let twin;
+if (process.env.TRACE) {
+  page.on('request', (r) => { if (r.url().includes('/api/relay')) console.log('  > relay', new Date().toISOString(), (JSON.parse(r.postData() ?? '{}').summary ?? '')); });
+  page.on('response', async (r) => { if (r.url().includes('/api/relay')) console.log('  < relay', new Date().toISOString(), r.status(), (await r.text().catch(() => '')).slice(0, 160)); });
+}
+// A navigation reloads the app; the wallet reconnects by itself most of the time, not always. Connect again when the
+// header still offers it, and wait until the account is there (the header shows the account instead).
+async function go(path) {
+  await page.goto(`${BASE}${path}`);
+  const again = page.getByRole('button', { name: /Connect QoreX/ }).filter({ visible: true }).first();
+  if (await again.isVisible({ timeout: 8_000 }).catch(() => false)) await again.click();
+  await page.waitForFunction(() => !/Connect QoreX/.test(document.querySelector('header')?.innerText ?? ''), null, { timeout: 30_000 }).catch(() => {});
+}
 
 await check('connect QoreX', async () => {
   await page.goto(`${BASE}/access`);
-  await page.getByRole('button', { name: /Connect QoreX/ }).first().click();
+  // The page hydrates before the button acts (it waits for QoreX to inject itself): the visible one, given time.
+  await page.getByRole('button', { name: /Connect QoreX/ }).filter({ visible: true }).first().click({ timeout: 60_000 });
   await page.waitForFunction(() => document.body.innerText.includes('Your encryption key'), null, { timeout: 30_000 });
   const owner = await page.evaluate(async () => {
     const k = await window.qorex.native.getKey('qorechain-diana');
@@ -80,14 +93,17 @@ await check('connect QoreX', async () => {
 });
 
 await check('create the QoreSeal key in the browser and publish it (AccessRegistry, through the relayer)', async () => {
+  // Decide only once the page has read the chain: a button seen while it loads is not the state.
+  await page.waitForFunction(() => /Published and bound|Create my key|Publish my key/.test(document.body.innerText), null, { timeout: 60_000 });
+  await page.waitForTimeout(2_000);
   const create = page.getByRole('button', { name: /Create my key/ });
-  if (await create.isVisible()) {
+  if (!(await page.getByText('Published and bound').first().isVisible()) && (await create.isVisible())) {
     await create.click();
     const seed = await page.evaluate((k) => localStorage.getItem(k), `agama-qore:seal:${twin.toLowerCase()}`);
     writeFileSync(SEED_FILE, seed, { mode: 0o600 });
   }
   const publish = page.getByRole('button', { name: /Publish my key/ });
-  if (await publish.isVisible()) await publish.click();
+  if (!(await page.getByText('Published and bound').first().isVisible()) && (await publish.isVisible())) await publish.click();
   await waitText('Published and bound to your account', 180_000);
   const k = await read(Q.access, 'encryptionKey', [twin]);
   assert(k.length === 2 + 1568 * 2, 'ML-KEM-1024 key on chain');
@@ -123,10 +139,14 @@ await check('the keeper approves it with ML-DSA-87; the lender opens the sealed 
 
 await check('mint mock USDC from the faucet', async () => {
   const before = await read(Q.usdc, 'balanceOf', [twin]);
-  await page.goto(`${BASE}/faucet`);
+  await go('/faucet');
   await page.getByRole('button', { name: /Get 10,000 USDC/ }).click();
-  for (let i = 0; i < 80 && (await read(Q.usdc, 'balanceOf', [twin])) === before; i++) await page.waitForTimeout(1500);
-  const after = await read(Q.usdc, 'balanceOf', [twin]);
+  // The public RPC is load balanced: wait for the exact amount, so a node one block behind cannot answer the last read.
+  let after = before;
+  for (let i = 0; i < 80 && after - before !== 10_000_000_000n; i++) {
+    await page.waitForTimeout(1500);
+    after = await read(Q.usdc, 'balanceOf', [twin]);
+  }
   const toast = (await page.locator('[role=status]').allTextContents()).join(' | ');
   assert(after - before === 10_000_000_000n, `minted 10,000 (toast: ${toast.slice(0, 160)})`);
   return `${Number(after) / 1e6} USDC`;
@@ -134,7 +154,7 @@ await check('mint mock USDC from the faucet', async () => {
 
 await check('deposit 2,500 USDC into agUSD, one QoreX signature', async () => {
   const before = await read(Q.vault, 'balanceOf', [twin]);
-  await page.goto(`${BASE}/`);
+  await go('/');
   await page.locator('input[inputmode="decimal"]').first().fill('2500');
   await page.getByRole('button', { name: /Deposit and start earning/ }).click();
   for (let i = 0; i < 40 && (await read(Q.vault, 'balanceOf', [twin])) === before; i++) await page.waitForTimeout(1500);
@@ -145,14 +165,14 @@ await check('deposit 2,500 USDC into agUSD, one QoreX signature', async () => {
 });
 
 await check('portfolio shows the position and the access', async () => {
-  await page.goto(`${BASE}/portfolio`);
+  await go('/portfolio');
   await waitText('Approved lender until', 30_000);
   await waitText('Agama USD');
   await shot('5-portfolio');
 });
 
 await check('data room: the next epoch includes the lender, who decrypts the loan tape', async () => {
-  await page.goto(`${BASE}/data-room`);
+  await go('/data-room');
   // The tape opens by itself for a member whose key is in this browser; the button is only a fallback.
   await page.getByText(/ciphertext matches its on-chain commitment|Decrypt in this browser/).first().waitFor({ timeout: 300_000 });
   const btn = page.getByRole('button', { name: /Decrypt in this browser/ });

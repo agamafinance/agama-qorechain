@@ -8,7 +8,7 @@
  * with pqcVerify. The simulation runs that same check, so a message the chain would refuse is refused here before
  * the relayer spends anything.
  */
-import { parseAbi, type Address, type Hex } from 'viem';
+import { encodeAbiParameters, keccak256, parseAbi, type Address, type Hex } from 'viem';
 import { qore } from '../chains';
 import { QORECHAIN } from '../deployments';
 import { landedWithMemo, writeNative } from './native';
@@ -49,7 +49,9 @@ export async function submit(req: Req) {
   const acc = (await qore.readContract({ address: QORECHAIN.pqAccountFactory, abi: factoryAbi, functionName: 'accountOf', args: [owner] })) as Address;
   const code = await qore.getCode({ address: acc });
   const nonce = code && code !== '0x' ? ((await qore.readContract({ address: acc, abi: factoryAbi, functionName: 'nonce' })) as bigint) : 0n;
-  const memo = `agama execute ${acc.toLowerCase()} ${nonce}`;
+  // Unique to this message: two messages signed for the same nonce (two clicks in a row) differ by their calls.
+  const callsHash = keccak256(encodeAbiParameters([{ type: 'tuple[]', components: [{ name: 'target', type: 'address' }, { name: 'data', type: 'bytes' }] }], [calls]));
+  const memo = `agama execute ${acc.toLowerCase()} ${nonce} ${callsHash.slice(2, 14)}`;
   // This message is done once the account's nonce has moved past the one it was signed for, by the transaction
   // carrying its memo: then a retry must not send it again, and an error after it landed is not the lender's error.
   const done = async () => {
@@ -64,5 +66,7 @@ export async function submit(req: Req) {
 /** The reason a refusal shows the lender: the contract's, not viem's whole report. */
 export function refusal(e: unknown) {
   const m = String((e as { shortMessage?: string })?.shortMessage ?? (e as Error)?.message ?? e);
+  // The account's own check refused it: almost always a message signed for a nonce another action just used.
+  if (/function "execute" reverted/i.test(m)) return 'Your previous action was still being confirmed. Nothing was sent: try again.';
   return m.split('\n')[0].slice(0, 300);
 }

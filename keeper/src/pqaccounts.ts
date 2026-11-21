@@ -59,7 +59,8 @@ export async function submit(req: { owner: Address; calls: Call[]; summary: stri
   // The simulation (writeNative) runs the account's pqcVerify first, so a refused message costs nothing.
   const pqSignature = ("0x" + Buffer.from(req.signature.pq.signature, "base64").toString("hex")) as Hex;
   const args = [owner, calls, summary, deadline, pqSignature];
-  const memo = `agama execute ${acc.toLowerCase()} ${nonce}`;
+  // Unique to this message: two messages signed for the same nonce differ by their calls.
+  const memo = `agama execute ${acc.toLowerCase()} ${nonce} ${keccak256(encodeAbiParameters(callsType, [calls])).slice(2, 14)}`;
   const done = async () => ((await nonceOf(acc).catch(() => 0n)) > nonce ? landedWithMemo("relayer", memo) : null);
   const { hash, gasUsed: used } = await writeNative("relayer", Q.pqAccountFactory, factoryAbi, "execute", args, memo, undefined, done);
   const receipt = { gasUsed: used };
