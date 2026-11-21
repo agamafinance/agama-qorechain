@@ -83,7 +83,7 @@ function describe(target: string, data: Hex): string {
 async function nativeHash(input: string) {
   if (!/^0x[0-9a-fA-F]{64}$/.test(input)) return input.toUpperCase();
   const base = REST.replace(/\/api\/rest$/, '');
-  const r = await fetch(`${base}/api/tx/${input}`);
+  const r = await fetch(`${base}/api/native-tx/${input}`);
   const j = (await r.json()) as { cosmosHash?: string; error?: string };
   if (!j.cosmosHash) throw new Error(j.error ?? 'Transaction not found on qorechain-diana');
   return j.cosmosHash;
