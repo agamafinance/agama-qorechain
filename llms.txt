@@ -28,8 +28,9 @@
 - Protocol battery 42/42 (8 lenders against the production keeper), protocol e2e 30/30
 - PqAccount battery 26/26, PqAccount attack checks 7/7
 - Browser e2e 7/7 and 9/9 with the official QoreX test double, against the deployed app
-- Explorer 12/12 transaction kinds quantum-safe; pq-audit 318/318 transactions hybrid-verified
+- Explorer 12/12 transaction kinds quantum-safe; pq-audit 584/584 transactions hybrid-verified
 - Bridge messages rebuilt from calldata and state, without logs: 37/37 byte-identical
+- Campaign: three rounds of every battery with fresh lenders, 584/584 hybrid, 1,000,000 fuzz cases: docs/battery/campaign-2026-11-21.md
 - 22 findings from tests and the live keeper, each with its fix: docs/FINDINGS.md
 
 ## QoreChain features used
