@@ -15,7 +15,6 @@ import { CreditVaults } from '@/components/CreditVaults';
 import { BridgeSecurity } from '@/components/BridgeSecurity';
 import { Onboarding } from '@/components/Onboarding';
 import { KeyNotice } from '@/components/KeyNotice';
-import { QOR_FAUCET } from '@/lib/chains';
 import { DASH, fmt, parse, raw, usd } from '@/lib/format';
 import { netApy, precisePrice, useActions, useActivity, useBook, useUser, useVault } from '@/lib/protocol';
 import { useWallet } from '@/lib/wallet';
@@ -231,12 +230,6 @@ export default function EarnPage() {
             {!busy && <Status text={status?.text} error={status?.error} />}
 
             <p className="mt-auto pt-4 text-[12px] text-fg-muted">
-              {user.qor === 0n ? (
-                <>
-                  You need a little QOR for gas:{' '}
-                  <a href={QOR_FAUCET} target="_blank" rel="noreferrer" className="underline hover:text-fg">QoreChain faucet</a>.{' '}
-                </>
-              ) : null}
               <Link href="/faucet" className="underline hover:text-fg">Faucet</Link>
             </p>
             </>

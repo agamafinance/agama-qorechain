@@ -114,14 +114,6 @@ export type Member = {
   dossierHash: Hex;
 };
 
-async function bank(address: string): Promise<{ qor: bigint; fusd: bigint }> {
-  const r = await fetch(`${REST}/cosmos/bank/v1beta1/balances/${address}`);
-  if (!r.ok) return { qor: 0n, fusd: 0n };
-  const b = (await r.json()) as { balances?: { denom: string; amount: string }[] };
-  const of = (d: string) => BigInt(b.balances?.find((x) => x.denom === d)?.amount ?? '0');
-  return { qor: of('uqor'), fusd: of(`erc20:${QORECHAIN.fusd}`) };
-}
-
 /// The connected lender: balances, permission and the keys it has published.
 export function useUser() {
   const { account } = useWallet();
@@ -131,7 +123,7 @@ export function useUser() {
     enabled: !!account,
     refetchInterval: REFRESH,
     queryFn: async () => {
-      const [usdc, agusd, allowance, maxWithdraw, maxRedeem, eligible, m, key, b, fusdErc20] = await Promise.all([
+      const [usdc, agusd, allowance, maxWithdraw, maxRedeem, eligible, m, key] = await Promise.all([
         read<bigint>(QORECHAIN.usdc, MockUSDCAbi, 'balanceOf', [a]),
         read<bigint>(QORECHAIN.vault, AgUSDAbi, 'balanceOf', [a]),
         read<bigint>(QORECHAIN.usdc, MockUSDCAbi, 'allowance', [a, QORECHAIN.vault]),
@@ -140,12 +132,7 @@ export function useUser() {
         read<boolean>(QORECHAIN.access, AccessRegistryAbi, 'isEligible', [a]),
         read<readonly [number, number, bigint, bigint, bigint, bigint, Hex]>(QORECHAIN.access, AccessRegistryAbi, 'members', [a]),
         read<Hex>(QORECHAIN.access, AccessRegistryAbi, 'encryptionKey', [a]),
-        bank(account!.address),
-        read<bigint>(QORECHAIN.fusd, MockUSDCAbi, 'balanceOf', [a]),
       ]);
-      const qor = b.qor;
-      // fUSD as the faucet pays it (bank form) plus any already converted to ERC-20 on the 0x twin.
-      const fusd = b.fusd + fusdErc20;
       const member: Member = {
         status: STATUS[m[0]] ?? 'None',
         tier: m[1],
@@ -155,7 +142,7 @@ export function useUser() {
         decidedBlock: m[5],
         dossierHash: m[6],
       };
-      return { usdc, agusd, allowance, maxWithdraw, maxRedeem, eligible, member, encryptionKey: key, qor, fusd, fusdBank: b.fusd, fusdErc20 };
+      return { usdc, agusd, allowance, maxWithdraw, maxRedeem, eligible, member, encryptionKey: key };
     },
   });
   return { ...q, ...(q.data ?? {}), address: account?.evm, account };
