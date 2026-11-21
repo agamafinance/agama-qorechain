@@ -86,7 +86,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
                     rel="noreferrer"
                     className="mt-1.5 inline-flex items-center gap-1 text-[12px] text-fg underline-offset-2 hover:underline"
                   >
-                    View on the explorer <ExternalLink className="h-3 w-3" aria-hidden />
+                    View transaction <ExternalLink className="h-3 w-3" aria-hidden />
                   </a>
                 )}
               </div>
