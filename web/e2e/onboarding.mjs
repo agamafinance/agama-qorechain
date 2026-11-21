@@ -89,9 +89,15 @@ await check('test USDC from the card, then a deposit, all on Earn', async () => 
     for (let i = 0; i < 120 && (await read(Q.usdc, "balanceOf", [twin])) === 0n; i++) await page.waitForTimeout(1500);
   }
   const before = await read(Q.vault, 'balanceOf', [twin]);
-  await page.locator('input[inputmode="decimal"]').first().fill('1000');
+  // The card re-renders when the new USDC balance lands: type the amount once it shows, and again if it was cleared.
+  await page.getByText(/Balance [1-9]/).first().waitFor({ timeout: 60_000 });
+  const input = page.locator('input[inputmode="decimal"]').first();
   const btn = page.getByRole('button', { name: /Deposit and start earning/ });
-  if (!(await btn.waitFor({ timeout: 60_000 }).then(() => true).catch(() => false))) {
+  for (let i = 0; i < 5 && !(await btn.isVisible()); i++) {
+    if ((await input.inputValue()) !== '1000') await input.fill('1000');
+    await btn.waitFor({ timeout: 12_000 }).catch(() => {});
+  }
+  if (!(await btn.waitFor({ timeout: 1_000 }).then(() => true).catch(() => false))) {
     const card = await page.getByText('Deposit USDC').first().locator('xpath=../..').innerText();
     throw new Error(`deposit button not shown; card says: ${card.replace(/\s+/g, ' ').slice(0, 200)}`);
   }
