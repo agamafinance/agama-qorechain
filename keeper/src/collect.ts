@@ -26,7 +26,8 @@ for (let i = from; i <= to; i++) {
     console.log(`  #${i} ${addr}: ${Number(u) / 1e6} QOR, not enough for the fee; fUSD ${Number(f) / 1e6} left there`);
     continue;
   }
-  const amount = [{ denom: "uqor", amount: String(u - FEE) }, ...(f > 0n ? [{ denom: FUSD, amount: String(f) }] : [])];
+  // The chain refuses coins not sorted by denomination: erc20:… before uqor.
+  const amount = [...(f > 0n ? [{ denom: FUSD, amount: String(f) }] : []), { denom: "uqor", amount: String(u - FEE) }].sort((a, b) => (a.denom < b.denom ? -1 : 1));
   try {
     const { client } = await treasuryClient(i);
     const res: any = await client.signAndBroadcast(
