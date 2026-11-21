@@ -26,7 +26,9 @@ export const QOR_FAUCET = 'https://dashboard.qorechain.io/faucet';
 export const QOREX_INSTALL = 'https://docs.qorechain.io/qorex/browser-extension';
 
 export const qoreAddress = (a: string) => `${QORE_EXPLORER}/address/${a}`;
-export const qoreTx = (h: string) => `${QORE_EXPLORER}/tx/${h.replace(/^0x/, '')}`;
+/// A native QoreChain hash links straight to the explorer; an EVM hash goes through /api/tx, which finds the native
+/// transaction that carries it (the explorer only knows those).
+export const qoreTx = (h: string) => (/^0x[0-9a-fA-F]{64}$/.test(h) ? `${BASE}/api/tx/${h}` : `${QORE_EXPLORER}/tx/${h}`);
 export const ethAddress = (a: string) => `${ETH_EXPLORER}/address/${a}`;
 export const ethTx = (h: string) => `${ETH_EXPLORER}/tx/${h}`;
 
