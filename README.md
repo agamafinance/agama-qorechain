@@ -1,4 +1,4 @@
-<p align="center"><img src="docs/cover.png" alt="Agama on QoreChain: private credit, sealed against Q-Day" width="100%"></p>
+<p align="center"><img src="docs/cover.jpg" alt="Agama on QoreChain: private credit, sealed against Q-Day" width="100%"></p>
 
 <p align="center">
   <a href="https://app.agama.finance/qorechain"><b>Live app</b></a> ·
