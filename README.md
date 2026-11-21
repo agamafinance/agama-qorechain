@@ -32,7 +32,7 @@ testnet, during the fest. Live, with a running keeper and a bridge to Ethereum S
   setup**.
 - **Nothing Agama sends on QoreChain is ECDSA-only.** The relayer and the keeper send hybrid-signed (secp256k1 +
   ML-DSA-87) native transactions; QoreChain's explorer shows every one *quantum-safe, verified on-chain*, and the chain
-  **refuses** an ECDSA-only transaction from any of Agama's accounts. Measured: **278/278**.
+  **refuses** an ECDSA-only transaction from any of Agama's accounts. Measured: **318/318**.
 
 <table>
   <tr>
@@ -178,7 +178,7 @@ Latest full run, against the production keeper and the deployed app ([docs/batte
 | Browser, simple path, real hybrid signatures (official QoreX test double) | **7/7** |
 | Browser, full path | **9/9**, four runs in a row |
 | Explorer: 12 kinds of Agama transactions | **12/12** quantum-safe |
-| Post-quantum audit: every transaction since the switch | **278/278** hybrid-verified; ECDSA-only refused |
+| Post-quantum audit: every transaction since the switch | **318/318** hybrid-verified; ECDSA-only refused |
 | Bridge rebuilt without logs | **37/37** byte-identical |
 
 The tests found real bugs: [22 findings](docs/FINDINGS.md), each with what was done. Among them: an invariant that

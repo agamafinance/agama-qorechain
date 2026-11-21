@@ -16,7 +16,7 @@ Every write Agama's accounts make on QoreChain is now a hybrid-signed (secp256k1
 | Browser, full path (`web/e2e/browser.mjs`, production) | **9/9**, four runs in a row |
 | Browser, locked QoreX (`web/e2e/locked.mjs`, production) | **pass**; the toast links the native hash |
 | Explorer (`web/e2e/explorer.mjs`) | **12/12** kinds (11 below, and the keeper's NAV mark `186ADE12…`) shown *quantum-safe, verified on-chain*, ML-DSA-87 |
-| Post-quantum audit (`keeper/src/pq-audit.ts`) | **278/278** transactions since the switch hybrid-verified; no window open; an ECDSA-only EVM transaction from the operator and from the relayer refused by the chain |
+| Post-quantum audit (`keeper/src/pq-audit.ts`) | **318/318** transactions since the switch hybrid-verified; no window open; an ECDSA-only EVM transaction from the operator and from the relayer refused by the chain |
 
 ## Explorer
 

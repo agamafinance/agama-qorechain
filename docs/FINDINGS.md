@@ -1,7 +1,7 @@
 # Findings
 
 Everything the tests, the end-to-end runs, the batteries and the live keeper turned up, and what was done.
-Latest battery: [docs/battery/native-lane.md](battery/native-lane.md), after the switch to the native lane: protocol **42/42** with 8 lenders, PqAccounts **26/26**, e2e **30/30**, browser **7/7** and **9/9**, explorer **12/12**, audit **278/278** transactions hybrid-verified.
+Latest battery: [docs/battery/native-lane.md](battery/native-lane.md), after the switch to the native lane: protocol **42/42** with 8 lenders, PqAccounts **26/26**, e2e **30/30**, browser **7/7** and **9/9**, explorer **12/12**, audit **318/318** transactions hybrid-verified.
 
 | # | Found by | Finding | Status |
 |---|---|---|---|
