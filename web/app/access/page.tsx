@@ -366,7 +366,7 @@ function DecisionStep({
   keys: SealKeyPair | null;
   expiresAt?: bigint;
   letter?: Hex;
-  tx?: Hex;
+  tx?: string;
 }) {
   const [opened, setOpened] = useState<Letter>();
   const [err, setErr] = useState<string>();

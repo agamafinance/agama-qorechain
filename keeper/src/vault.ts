@@ -63,7 +63,7 @@ export async function rebalance() {
   const s = await snapshot();
   const target = await floor(s.totalAssets);
   if (s.liquid > target && s.liquid - target >= BUFFER.minMove) {
-    await send("qorechain", Q.allocator, AllocatorAbi, "allocate", [s.liquid - target], { gas: 1_000_000n });
+    await send("qorechain", Q.allocator, AllocatorAbi, "allocate", [s.liquid - target], { gas: 1_000_000n, memo: "agama allocate to Ethereum" });
     return true;
   }
   return false;

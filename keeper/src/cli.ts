@@ -1,4 +1,4 @@
-// tsx src/cli.ts <status|tick|loop <minutes>|relay|review|tape|window|allocate <usdc>|home <usdc>>
+// tsx src/cli.ts <status|tick|loop <minutes>|relay|review|tape|allocate <usdc>|home <usdc>>
 import { formatUnits, parseUnits } from "viem";
 import { E, Q, send } from "./config.js";
 import { artifact } from "./evm.js";
@@ -8,10 +8,8 @@ import { bringHome, runBook } from "./book.js";
 import { inbound, navOfBook, rebalance, refill, report, settleQueue, shortfall, snapshot, vaultNeedsWork } from "./vault.js";
 import { reviewDossiers } from "./compliance.js";
 import { publishTape } from "./dataroom.js";
-import { ensureWindow } from "./window.js";
 import { ensureGas } from "./gastank.js";
 import { ensureRelayer } from "./relayer.js";
-import { ensureRelayerWindow } from "./pqaccounts.js";
 
 const usd = (v: bigint) => `$${Number(formatUnits(v, 6)).toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
 
@@ -40,9 +38,9 @@ ABF issuer on Ethereum Sepolia
 async function tick() {
   // Gas first: the treasury's authenticator tops the operator up within the chain's daily limit.
   await ensureGas().catch((e) => console.log(`  ::warning:: gas tank: ${(e as Error).message.split("\n")[0]}`));
-  await ensureWindow();
-  // The app's relayer (web/lib/server/relay.ts) only holds a key: its gas and its EVM window are kept here.
-  await ensureRelayer().then(ensureRelayerWindow).catch((e) => console.log(`  ::warning:: relayer: ${(e as Error).message.split("\n")[0]}`));
+  // Every QoreChain write is a hybrid-signed native transaction: no EVM window to keep open. The app's relayer
+  // (web/lib/server/relay.ts) only holds its keys; its gas is kept here.
+  await ensureRelayer().catch((e) => console.log(`  ::warning:: relayer: ${(e as Error).message.split("\n")[0]}`));
   console.log("relay");
   await relayAll();
   // What the vault needs home is known before the book runs, so the book keeps it as cash instead of wiring it out.
@@ -120,7 +118,6 @@ const run: Record<string, () => Promise<unknown>> = {
   relay: relayAll,
   review: reviewDossiers,
   tape: () => publishTape(true),
-  window: ensureWindow,
   allocate: async () => {
     await send("qorechain", Q.allocator, artifact("CrossChainAllocator").abi, "allocate", [parseUnits(arg, 6)]);
     await relayAll();
@@ -131,7 +128,7 @@ const run: Record<string, () => Promise<unknown>> = {
   },
 };
 if (!run[cmd]) {
-  console.error("usage: tsx src/cli.ts <status|tick|loop <minutes>|relay|review|tape|window|allocate <usdc>|home <usdc>>");
+  console.error("usage: tsx src/cli.ts <status|tick|loop <minutes>|relay|review|tape|allocate <usdc>|home <usdc>>");
   process.exit(1);
 }
 await run[cmd]();

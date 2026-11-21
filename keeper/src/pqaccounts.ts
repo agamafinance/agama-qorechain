@@ -7,14 +7,12 @@
 import { createHash } from "node:crypto";
 import { toBech32 } from "@cosmjs/encoding";
 import { hexToBytes, keccak256, encodeAbiParameters, type Address, type Hex } from "viem";
-import { openEvmWindowMsg } from "@qorechain/sdk";
-import { evmWindowCost } from "@qorechain/evm";
 import { fetchEvmWindow, verifyMessageWithChain } from "@qorechain/qoresign/network";
 import type { MessageSignature } from "@qorechain/qoresign";
 import { account } from "./accounts.js";
 import { Q } from "./config.js";
-import { artifact, wallet } from "./evm.js";
-import { sendNative } from "./native.js";
+import { artifact } from "./evm.js";
+import { sendNative, writeNative } from "./native.js";
 import { CHAIN_ID, REST, qore } from "./net.js";
 
 export type Call = { target: Address; data: Hex };
@@ -37,20 +35,6 @@ export function textFor(acc: Address, calls: Call[], summary: string, nonce: big
   return `${summary}\n\nAgama account ${acc.toLowerCase()}\nnonce ${nonce}\nvalid until ${deadline}\ncalls ${h}`;
 }
 
-/** Keeps the relayer's own EVM window open, scoped to the factory: the only contract it ever calls. */
-export async function ensureRelayerWindow() {
-  const rel = await account("relayer");
-  const w: any = await fetchEvmWindow({ rest: REST, address: rel.cosmos }).catch(() => null);
-  if (w?.live && Number(w.remainingBlocks) > 600 && Number(w.remainingTxs) > 20) return;
-  const maxTxs = 1_000n;
-  const msg = openEvmWindowMsg({
-    sender: rel.cosmos, blocks: 17_280n, maxTxs, maxValue: evmWindowCost({ gas: 8_000_000n, maxFeePerGas: 250_000_000_000n }) * maxTxs,
-    allowedTargets: [Q.pqAccountFactory],
-  } as any);
-  console.log(`relayer EVM window ${await sendNative("relayer", [msg], "hybrid", 400_000)}`);
-  await new Promise((r) => setTimeout(r, 6_000));
-}
-
 const ALLOWED = () => new Set([Q.usdc, Q.access, Q.vault].map((a: string) => a.toLowerCase()));
 
 export async function submit(req: { owner: Address; calls: Call[]; summary: string; deadline: string; signature: MessageSignature }) {
@@ -71,14 +55,12 @@ export async function submit(req: { owner: Address; calls: Call[]; summary: stri
   // Both halves, against the owner's keys on chain, before the relayer spends anything.
   await verifyMessageWithChain({ rest: REST, chainId: CHAIN_ID, signer: toBech32("qor", hexToBytes(owner)), data: text, signature: req.signature, requirePq: true });
 
-  await ensureRelayerWindow();
-  const w = await wallet("relayer", "qorechain");
+  // A hybrid-signed (secp256k1 + ML-DSA-87) native transaction from the relayer: no EVM window, nothing ECDSA-only.
+  // The simulation (writeNative) runs the account's pqcVerify first, so a refused message costs nothing.
   const pqSignature = ("0x" + Buffer.from(req.signature.pq.signature, "base64").toString("hex")) as Hex;
   const args = [owner, calls, summary, deadline, pqSignature];
-  const gas = await qore.estimateContractGas({ address: Q.pqAccountFactory, abi: factoryAbi, functionName: "execute", args, account: w.account! } as any);
-  const hash = await w.writeContract({ address: Q.pqAccountFactory, abi: factoryAbi, functionName: "execute", args, account: w.account!, chain: w.chain, gas: (gas * 125n) / 100n } as any);
-  const receipt = await qore.waitForTransactionReceipt({ hash, timeout: 120_000 });
-  if (receipt.status !== "success") throw new Error(`reverted on chain in ${hash}`);
+  const { hash, gasUsed: used } = await writeNative("relayer", Q.pqAccountFactory, factoryAbi, "execute", args, `agama execute ${acc.toLowerCase()} ${nonce}`);
+  const receipt = { gasUsed: used };
   const digest = createHash("sha256").update(text).digest("hex").slice(0, 16);
   console.log(new Date().toISOString(), `pq ${summary.split("\n")[0]} for ${acc} (owner ${owner}): ${hash} gas ${receipt.gasUsed} (message ${digest})`);
   return { txHash: hash, account: acc, gasUsed: String(receipt.gasUsed) };

@@ -51,7 +51,72 @@ export async function dossierProvenance(access: Address, account: Address, dossi
     const res = await verifyTx(t.txhash, t.tx.auth_info.signer_infos[0].public_key, signer);
     return { tx: t.txhash, signer, ...res, lane: "native" };
   }
-  return evmProvenance(access, account, dossierHash);
+  return (await pqAccountNativeProvenance(access, account, dossierHash)) ?? evmProvenance(access, account, dossierHash);
+}
+
+/**
+ * A dossier filed by a PqAccount on the native lane: Agama's relayer sent factory.execute as a hybrid-signed
+ * MsgCrossVMCall, which leaves no EVM log. The officer finds that transaction (indexed by its target, the factory),
+ * verifies its two signatures with QoreSign, then verifies the owner's ML-DSA-87 signature itself: the text QoreX
+ * signed is rebuilt from the calldata, and the nonce it was signed for is found below the account's current one (only
+ * one verifies). The owner's key must be registered with proof of possession.
+ */
+async function pqAccountNativeProvenance(access: Address, account: Address, dossierHash: Hex): Promise<Provenance | null> {
+  const { Q } = await import("./config.js");
+  const { nativeCalls, decode } = await import("./chain.js");
+  if (!Q.pqAccountFactory) return null;
+  const head = Number(await qore.getBlockNumber());
+  const accessAbi = artifact("AccessRegistry").abi;
+  for (const c of (await nativeCalls(Q.pqAccountFactory, head - 20_000)).reverse()) {
+    const a = decode<[Address, readonly { target: Address; data: Hex }[], string, bigint, Hex]>(c, factoryExecAbi, "execute");
+    if (!a) continue;
+    const [owner, calls, summary, deadline, sig] = a;
+    const acc = (await qore.readContract({ address: Q.pqAccountFactory, abi: factoryExecAbi, functionName: "accountOf", args: [owner] })) as Address;
+    if (acc.toLowerCase() !== account.toLowerCase()) continue;
+    const files = calls.some((x) => {
+      if (x.target.toLowerCase() !== access.toLowerCase()) return false;
+      try {
+        const d = decodeFunctionData({ abi: accessAbi, data: x.data });
+        return d.functionName === "fileDossier" && keccak256(d.args![0] as Hex) === dossierHash;
+      } catch {
+        return false;
+      }
+    });
+    if (!files) continue;
+    const t = await rest<any>(`/cosmos/tx/v1beta1/txs/${c.hash}`);
+    const res = await verifyTx(c.hash, t.tx.auth_info.signer_infos[0].public_key, c.sender);
+    const owned = await verifyOwnerSignature(acc, owner, calls, summary, deadline, sig);
+    return { tx: c.hash, signer: bech32Of(owner), classical: res.classical && res.postQuantum, postQuantum: owned.verified && owned.proven, lane: "pq-account" };
+  }
+  return null;
+}
+
+const factoryExecAbi = parseAbi([
+  "function execute(address owner, (address target, bytes data)[] calls, string summary, uint256 deadline, bytes pqSignature)",
+  "function accountOf(address owner) view returns (address)",
+]);
+
+/**
+ * The owner's ML-DSA-87 signature on a PqAccount execution, verified here against the key it registered on chain:
+ * over "qorechain-msg-v1|qorechain-diana|" + the text PqAccount.textFor builds. The nonce is not in the calldata; the
+ * account's has moved past it, so it is the one below the current nonce the signature verifies for, and no other.
+ */
+export async function verifyOwnerSignature(account: Address, owner: Address, calls: readonly { target: Address; data: Hex }[], summary: string, deadline: bigint, sig: Hex) {
+  const { mldsa87 } = await import("@qorechain/pqc");
+  const { textFor } = await import("./pqaccounts.js");
+  const [registered, , key, proven] = (await qore.readContract({
+    address: "0x0000000000000000000000000000000000000a02",
+    abi: [{ type: "function", name: "pqcKeyStatus", stateMutability: "view", inputs: [{ type: "address" }], outputs: [{ type: "bool" }, { type: "uint8" }, { type: "bytes" }, { type: "bool" }] }],
+    functionName: "pqcKeyStatus", args: [owner],
+  })) as readonly [boolean, number, Hex, boolean];
+  if (!registered) return { verified: false, proven: false, nonce: -1n, matches: 0 };
+  const current = (await qore.readContract({ address: account, abi: parseAbi(["function nonce() view returns (uint256)"]), functionName: "nonce" })) as bigint;
+  const signed = (n: bigint) => new TextEncoder().encode(`qorechain-msg-v1|${CHAIN_ID}|` + textFor(account, calls as any, summary, n, deadline));
+  const pk = hexToBytes(key);
+  const s = hexToBytes(sig);
+  const hits: bigint[] = [];
+  for (let n = current - 1n; n >= 0n && n >= current - 400n; n--) if (mldsa87.verify(pk, signed(n), s)) hits.push(n);
+  return { verified: hits.length === 1, proven, nonce: hits[0] ?? -1n, matches: hits.length };
 }
 
 /**

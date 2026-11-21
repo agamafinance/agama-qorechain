@@ -13,6 +13,7 @@ import { E, Q, send } from "./config.js";
 import { artifact, pqSign } from "./evm.js";
 import { eth, qore, sleep } from "./net.js";
 import { load, save } from "./state.js";
+import { nativeAllocationMessages } from "./chain.js";
 
 const MessageSent = parseAbiItem("event MessageSent(bytes message)");
 const QORE_LOG_RANGE = 10_000;
@@ -95,8 +96,14 @@ export async function relayAll(): Promise<number> {
   let done = 0;
 
   // QoreChain to Ethereum: allocations, executed by the receiver, which subscribes them to the issuer.
+  // Two sources, merged: MessageSent logs (allocations sent on the EVM lane, before the switch) and the messages of
+  // allocations sent on the native lane, which log nothing and are rebuilt from calldata and state (chain.ts).
   const out = await scan(qore as PublicClient, Q.messenger, state.qoreBlock, QORE_LOG_RANGE);
-  for (const m of out.messages) {
+  const native = await nativeAllocationMessages(state.qoreNativeHeight ?? state.qoreBlock);
+  const seen = new Set<string>();
+  for (const m of [...out.messages, ...native.map((x) => x.message)]) {
+    if (seen.has(m.toLowerCase())) continue;
+    seen.add(m.toLowerCase());
     // Only messages addressed to the live Ethereum messenger: after a migration the log scan still sees the ones
     // its predecessors already delivered, and retrying those stalled a whole keeper run (FINDINGS 18).
     if (recipientOf(m) !== String(E.messenger).toLowerCase()) continue;
@@ -108,7 +115,8 @@ export async function relayAll(): Promise<number> {
     done++;
   }
   // Rewind a little so a log the node had not indexed yet is read next time; nonces make that idempotent.
-  save({ ...state, qoreBlock: Math.max(out.head - 300, state.qoreBlock) });
+  const lastNative = native.at(-1)?.height;
+  save({ ...state, qoreBlock: Math.max(out.head - 300, state.qoreBlock), qoreNativeHeight: Math.max(lastNative ? lastNative - 300 : 0, state.qoreNativeHeight ?? state.qoreBlock) });
   if (out.error) throw out.error;
 
   // Ethereum to QoreChain: returns, settled by the allocator into the vault, attested post-quantum.

@@ -2,7 +2,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { E, Q, STATE_FILE } from "./config.js";
 
-export type State = { qoreBlock: number; ethBlock: number; lastReportAt?: number };
+export type State = { qoreBlock: number; ethBlock: number; lastReportAt?: number; qoreNativeHeight?: number };
 
 export function load(): State {
   if (existsSync(STATE_FILE)) return JSON.parse(readFileSync(STATE_FILE, "utf8"));

@@ -37,10 +37,19 @@ export async function wallet(role: Role, chain: Chain): Promise<WalletClient> {
 
 export const client = (chain: Chain): PublicClient => (chain === "qorechain" ? qore : eth) as PublicClient;
 
-/** Sends a contract write from `role`, waits for it and fails loudly on a revert. */
+/**
+ * Sends a contract write from `role`, waits for it and fails loudly on a revert. On QoreChain it is a hybrid-signed
+ * native transaction (native.ts writeNative): no EVM window, nothing ECDSA-only. Only a contract creation (deploy,
+ * below) still goes as an EVM transaction there, because a cross-VM call cannot create a contract.
+ */
 export async function write(
   chain: Chain, role: Role, address: Address, abi: Abi, functionName: string, args: unknown[] = [], gas?: bigint,
 ) {
+  if (chain === "qorechain") {
+    const { writeNative } = await import("./native.js");
+    const r = await writeNative(role, address, abi, functionName, args, `agama ${functionName}`, gas);
+    return { transactionHash: r.hash as Hex, gasUsed: r.gasUsed, status: "success" as const };
+  }
   const w = await wallet(role, chain);
   const { request } = await client(chain).simulateContract({ address, abi, functionName, args, account: w.account!, ...(gas ? { gas } : {}) } as any);
   const hash = await w.writeContract(request as any);
@@ -49,6 +58,10 @@ export async function write(
   return receipt;
 }
 
+/**
+ * Creates a contract. On QoreChain this is the one EVM transaction left (a cross-VM call cannot create a contract):
+ * deployment only, from a window opened for it and closed after (keys.ts window / close).
+ */
 export async function deploy(chain: Chain, role: Role, name: string, args: unknown[] = []): Promise<Address> {
   const { abi, bytecode } = artifact(name);
   const w = await wallet(role, chain);

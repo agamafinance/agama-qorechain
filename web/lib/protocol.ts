@@ -5,10 +5,12 @@
 // QoreChain is read through a plain viem client (JSON-RPC batched: the chain has no multicall contract), Ethereum
 // through another. Every write is a native QoreChain transaction that QoreX hybrid-signs (secp256k1 + ML-DSA-87)
 // and that reaches Agama's contracts through MsgCrossVMCall. The chain does not index the EVM logs of those calls,
-// so everything a lender's own action changes is read back from contract state, never from logs; the logs read
-// here are the keeper's, sent on the EVM lane.
+// so everything a lender's own action changes is read back from contract state, never from logs. The keeper writes on
+// the native lane too: what its calls carry (a decision letter, a key part, a sealed tape, a price mark) is read from
+// the committed transaction (lib/native.ts) and checked against contract state; logs only cover the history it sent on
+// the EVM lane before.
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { encodeAbiParameters, encodeFunctionData, keccak256, maxUint256, parseAbiItem, toHex, type Address, type Hex } from 'viem';
+import { encodeAbiParameters, encodeFunctionData, keccak256, maxUint256, parseAbi, parseAbiItem, toHex, type Abi, type Address, type Hex } from 'viem';
 import {
   AbfAssetIssuerAbi,
   AccessRegistryAbi,
@@ -25,6 +27,7 @@ import { COSMOS_CHAIN_ID, l1, qore, REST } from './chains';
 import { verifyRecipientCard, type RecipientCard, type SealRecipient } from '@qorechain/qoreseal';
 import cards from '../../deployments/recipient-cards.json';
 import { signArbitrary } from './qorex';
+import { callsAt, decode, recentCalls } from './native';
 import { useWallet } from './wallet';
 
 const REFRESH = 8_000;
@@ -307,7 +310,22 @@ export function useActivity() {
         ...marks.map((l: any) => row('ethereum', 'Book marked', l, l.args.current, `tape ${String(l.args.reportHash).slice(0, 10)}…`)),
       ].sort((a, b) => (b.ts ?? 0) - (a.ts ?? 0));
 
-      return { events, navs: navs.map((l: any) => ({ ts: qAt(l.blockNumber), price: l.args.sharePrice, block: l.blockNumber })) };
+      // Marks sent on the native lane leave no NavReported log: the keeper's reportNav calls, with the vault's share
+      // price read at the block of each one (QoreChain serves historical state).
+      const nativeMarks = (await recentCalls(QORECHAIN.vault).catch(() => [])).filter((c) => decode(c, markAbi, 'reportNav'));
+      const loggedBlocks = new Set(navs.map((l: any) => String(l.blockNumber)));
+      const native = await Promise.all(
+        nativeMarks
+          .filter((c) => !loggedBlocks.has(String(c.height)))
+          .map(async (c) => ({ ts: c.time, block: c.height, price: await qore.readContract({ address: QORECHAIN.vault, abi: AgUSDAbi, functionName: 'sharePrice', blockNumber: c.height }).catch(() => null) as bigint | null })),
+      );
+      return {
+        events,
+        navs: [
+          ...navs.map((l: any) => ({ ts: qAt(l.blockNumber), price: l.args.sharePrice as bigint, block: l.blockNumber as bigint })),
+          ...native.filter((n): n is { ts: number; block: bigint; price: bigint } => n.price != null),
+        ],
+      };
     },
   });
 }
@@ -343,15 +361,38 @@ export function useDecision(member?: Member) {
     queryKey: ['decision', account?.evm, String(member?.decidedBlock ?? 0n)],
     enabled: !!account && !!decided,
     staleTime: Infinity,
-    queryFn: async (): Promise<{ letter: Hex; tx: Hex } | null> => {
+    queryFn: async (): Promise<{ letter: Hex; tx: string } | null> => {
       const b = member!.decidedBlock;
-      const event = member!.status === 'Approved' ? Approved : Rejected;
-      const logs = await qore.getLogs({ address: QORECHAIN.access, event: event as any, args: { account: account!.evm } as any, fromBlock: b, toBlock: b });
+      const approved = member!.status === 'Approved';
+      const event = approved ? Approved : Rejected;
+      const logs = await qore.getLogs({ address: QORECHAIN.access, event: event as any, args: { account: account!.evm } as any, fromBlock: b, toBlock: b }).catch(() => []);
       const l = logs.at(-1) as any;
-      return l ? { letter: l.args.letter as Hex, tx: l.transactionHash as Hex } : null;
+      if (l) return { letter: l.args.letter as Hex, tx: l.transactionHash as Hex };
+      // Sent on the native lane: the officer's call in that block, for this account and this dossier. The chain only
+      // accepted it with the officer's ML-DSA-87 signature over keccak256(letter).
+      for (const c of (await callsAt(b, QORECHAIN.access)).reverse()) {
+        if (approved) {
+          const a = decode<readonly [Address, number, bigint, Hex, Hex]>(c, decisionAbi, 'approve');
+          if (a && a[0].toLowerCase() === account!.evm.toLowerCase() && a[3] === member!.dossierHash) return { letter: a[4], tx: c.hash };
+        } else {
+          const a = decode<readonly [Address, Hex, Hex]>(c, decisionAbi, 'reject');
+          if (a && a[0].toLowerCase() === account!.evm.toLowerCase() && a[1] === member!.dossierHash) return { letter: a[2], tx: c.hash };
+        }
+      }
+      return null;
     },
   });
 }
+
+const decisionAbi = parseAbi([
+  'function approve(address account, uint8 tier, uint64 expiresAt, bytes32 dossierHash, bytes letter, uint256 deadline, bytes signature)',
+  'function reject(address account, bytes32 dossierHash, bytes letter, uint256 deadline, bytes signature)',
+]) as Abi;
+const roomCallsAbi = parseAbi([
+  'function publishEpochPart(uint256 epoch, uint256 part, bytes distribution)',
+  'function publishReport(uint256 epoch, bytes32 kind, bytes blob, bytes32 ciphertextCommitment, bytes32 plaintextCommitment, uint256 deadline, bytes signature)',
+]) as Abi;
+const markAbi = parseAbi(['function reportNav(uint256 offChainAssets, uint256 deadline, bytes signature)']) as Abi;
 
 export type RoomReport = {
   index: bigint;
@@ -361,7 +402,7 @@ export type RoomReport = {
   ciphertextCommitment: Hex;
   plaintextCommitment: Hex;
   blob?: Hex;
-  tx?: Hex;
+  tx?: string;
 };
 
 /// The data room as the chain holds it: epochs, who is in them, and the sealed reports.
@@ -383,6 +424,15 @@ export function useDataRoom() {
             .getLogs({ address: QORECHAIN.dataRoom, event: ReportPublished, args: { index }, fromBlock: r.blockNumber, toBlock: r.blockNumber })
             .catch(() => []);
           const l = logs.at(-1) as any;
+          let blob = l?.args.blob as Hex | undefined;
+          let tx = l?.transactionHash as string | undefined;
+          if (!blob) {
+            // Native lane: the manager's call in that block, the one with this report's ciphertext commitment.
+            for (const c of await callsAt(r.blockNumber, QORECHAIN.dataRoom)) {
+              const a = decode<readonly [bigint, Hex, Hex, Hex]>(c, roomCallsAbi, 'publishReport');
+              if (a && a[3] === r.ciphertextCommitment) [blob, tx] = [a[2], c.hash];
+            }
+          }
           return {
             index,
             epoch: r.epoch,
@@ -390,8 +440,8 @@ export function useDataRoom() {
             size: r.size,
             ciphertextCommitment: r.ciphertextCommitment,
             plaintextCommitment: r.plaintextCommitment,
-            blob: l?.args.blob as Hex | undefined,
-            tx: l?.transactionHash as Hex | undefined,
+            blob,
+            tx,
           };
         }),
       );
@@ -410,6 +460,14 @@ export function useDataRoom() {
               .getLogs({ address: QORECHAIN.dataRoom, event: EpochPart, args: { epoch: e, part }, fromBlock: at, toBlock: at })
               .catch(() => []);
             distribution = (logs.at(-1) as any)?.args.distribution;
+            if (!distribution) {
+              // Native lane: the part in that block whose keccak256 is the part hash the manager signed.
+              const signed = await read<Hex>(QORECHAIN.dataRoom, DataRoomAbi, 'partHash', [e, part]);
+              for (const c of await callsAt(at, QORECHAIN.dataRoom)) {
+                const a = decode<readonly [bigint, bigint, Hex]>(c, roomCallsAbi, 'publishEpochPart');
+                if (a && a[0] === e && a[1] === part && keccak256(a[2]) === signed) distribution = a[2];
+              }
+            }
           }
         }
         current = { epoch: e, members: ep.members, parts: ep.parts, distribution, isMember };

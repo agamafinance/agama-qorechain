@@ -4,6 +4,7 @@ import { BaseError, ContractFunctionRevertedError, type Abi, type Address, type 
 import { loadDeployments } from "./deployments.js";
 import { client, wallet, type Chain } from "./evm.js";
 import { sleep } from "./net.js";
+import { writeNative } from "./native.js";
 import type { Role } from "./accounts.js";
 
 export const Q = loadDeployments("qorechain") as Record<string, any> & {
@@ -33,10 +34,13 @@ export const STATE_FILE = resolve(import.meta.dirname, "../state.json");
 /// simulation reverts, so a retry cannot send twice.
 export async function send(
   chain: Chain, address: Address, abi: Abi, functionName: string, args: unknown[] = [],
-  opts: { role?: Role; gas?: bigint; label?: string } = {},
+  opts: { role?: Role; gas?: bigint; label?: string; memo?: string } = {},
 ): Promise<Hex> {
   const role = opts.role ?? "operator";
   const label = opts.label ?? functionName;
+  // QoreChain: a hybrid-signed (secp256k1 + ML-DSA-87) native transaction, never an ECDSA-only EVM one. The hash
+  // returned is the native transaction's, the one the explorer knows.
+  if (chain === "qorechain") return sendQore(role, address, abi, functionName, args, opts.memo ?? `agama ${label}`, opts.gas, label);
   const w = await wallet(role, chain);
   const pub = client(chain);
   let hash: Hex | undefined;
@@ -54,11 +58,28 @@ export async function send(
       const reverted = e instanceof BaseError && e.walk((c) => c instanceof ContractFunctionRevertedError);
       if (!reverted || attempt === 4) throw e;
       console.log(`  ${label} refused by a node that may be behind, retrying`);
-      await sleep(chain === "sepolia" ? 12_000 : 3_000);
+      await sleep(12_000);
     }
   }
   const receipt = await pub.waitForTransactionReceipt({ hash: hash!, timeout: 180_000 });
   if (receipt.status !== "success") throw new Error(`${label} reverted on chain: ${hash}`);
-  console.log(`  ${chain === "qorechain" ? "qore" : "eth "} ${label.padEnd(20)} ${hash}  gas ${receipt.gasUsed}`);
+  console.log(`  eth  ${label.padEnd(20)} ${hash}  gas ${receipt.gasUsed}`);
   return hash!;
+}
+
+/// One QoreChain write on the native lane. A simulation that reverts is tried again a few seconds later (a node one
+/// block behind), as on the EVM path; nothing is broadcast until the simulation passes.
+async function sendQore(role: Role, address: Address, abi: Abi, functionName: string, args: unknown[], memo: string, gas: bigint | undefined, label: string): Promise<Hex> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const r = await writeNative(role, address, abi, functionName, args, memo, gas);
+      console.log(`  qore ${label.padEnd(20)} ${r.hash}  gas ${r.gasUsed}  (native, hybrid)`);
+      return r.hash as Hex;
+    } catch (e) {
+      const reverted = e instanceof BaseError && e.walk((c) => c instanceof ContractFunctionRevertedError);
+      if (!reverted || attempt === 4) throw e;
+      console.log(`  ${label} refused by a node that may be behind, retrying`);
+      await sleep(3_000);
+    }
+  }
 }

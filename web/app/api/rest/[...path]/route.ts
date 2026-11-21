@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server';
+import { QORECHAIN } from '@/lib/deployments';
 
 /**
  * Read-only proxy to QoreChain's REST API, whose public endpoint sends no CORS headers. Only the few GET routes the
@@ -19,8 +20,37 @@ const ALLOWED = [
   new RegExp(`^qorechain/pqc/v1/evm_window/${QOR}$`),
 ];
 
-export async function GET(_req: NextRequest, { params }: { params: Promise<{ path: string[] }> }) {
+/**
+ * Two transaction searches, for readers of native-lane calls (lib/native.ts), which leave no EVM log: the
+ * transactions of one block, and the calls to one of Agama's contracts. Both are the same for every visitor, so the
+ * CDN answers them: a block never changes, a contract's calls are at most 30 s stale.
+ */
+const CONTRACTS = new Set(
+  [QORECHAIN.usdc, QORECHAIN.access, QORECHAIN.vault, QORECHAIN.dataRoom, QORECHAIN.allocator, QORECHAIN.pqAccountFactory].map((a) => a.toLowerCase()),
+);
+function search(req: NextRequest): { qs: string; cache: string } | null {
+  const q = req.nextUrl.searchParams.get('query') ?? '';
+  const page = req.nextUrl.searchParams.get('page') ?? '1';
+  if (!/^\d{1,3}$/.test(page)) return null;
+  const height = /^tx\.height=(\d{1,12})$/.exec(q);
+  if (height) return { qs: new URLSearchParams({ query: q }).toString(), cache: 'public, s-maxage=86400, max-age=86400' };
+  const target = /^crossvm_request\.target_contract='(0x[0-9a-f]{40})'$/.exec(q);
+  if (target && CONTRACTS.has(target[1]))
+    return {
+      qs: new URLSearchParams({ query: q, order_by: 'ORDER_BY_DESC', 'pagination.limit': '100', page }).toString(),
+      cache: 'public, s-maxage=30, stale-while-revalidate=60',
+    };
+  return null;
+}
+
+export async function GET(req: NextRequest, { params }: { params: Promise<{ path: string[] }> }) {
   const path = (await params).path.join('/');
+  if (path === 'cosmos/tx/v1beta1/txs') {
+    const s = search(req);
+    if (!s) return NextResponse.json({ error: 'not allowed' }, { status: 404 });
+    const res = await fetch(`${UPSTREAM}/${path}?${s.qs}`, { headers: { accept: 'application/json', 'user-agent': 'agama-qorechain/1.0' }, cache: 'no-store' });
+    return new NextResponse(await res.text(), { status: res.status, headers: { 'content-type': 'application/json', 'cache-control': res.ok ? s.cache : 'no-store' } });
+  }
   if (!ALLOWED.some((re) => re.test(path))) {
     console.warn('rest proxy refused GET', path);
     return NextResponse.json({ error: 'not allowed' }, { status: 404 });

@@ -7,7 +7,7 @@
  *                                           publish the role's ML-KEM-1024 key in QoreChain's KEM registry
  *   tsx src/keys.ts window [blocks] [txs]   open the operator's EVM window, scoped to Agama's contracts
  */
-import { buildRegisterPqcKeyMsg, fetchEvmWindow, fetchPqcStatus, msg as qmsg, openEvmWindowMsg, signProofOfPossession } from "@qorechain/sdk";
+import { buildRegisterPqcKeyMsg, closeEvmWindowMsg, fetchEvmWindow, fetchPqcStatus, msg as qmsg, openEvmWindowMsg, signProofOfPossession } from "@qorechain/sdk";
 import { evmWindowCost } from "@qorechain/evm";
 import { fetchKemKey } from "@qorechain/qoreseal/network";
 import { account, ROLES, sealKeys, type Role } from "./accounts.js";
@@ -54,6 +54,24 @@ export async function openWindow(blocks = 17_280n, maxTxs = 1_000n, scoped = tru
   return tx;
 }
 
+/**
+ * Closes every role's EVM window. Agama sends nothing ECDSA-only on QoreChain any more: with no window, an EVM
+ * transaction from a role is refused by the chain ("has no open EVM authorisation window"). closeEvmWindowMsg takes
+ * the address itself; closeEvmWindowMsg({ sender }) fails with "decoding bech32 failed: invalid character ' '".
+ */
+export async function closeWindows() {
+  for (const role of ROLES) {
+    const acc = await account(role);
+    const w: any = await fetchEvmWindow({ rest: REST, address: acc.cosmos } as any).catch(() => null);
+    if (!w?.live) {
+      console.log(`${role.padEnd(10)} no window`);
+      continue;
+    }
+    const tx = await sendNative(role, [closeEvmWindowMsg(acc.cosmos)], "hybrid", 300_000, "agama close EVM window");
+    console.log(`${role.padEnd(10)} window closed: ${tx}`);
+  }
+}
+
 export async function windowStatus() {
   const acc = await account("operator");
   return fetchEvmWindow({ rest: REST, address: acc.cosmos } as any);
@@ -75,6 +93,8 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   if (cmd === "status") await status();
   else if (cmd === "register") for (const r of who === "all" ? ROLES : [who as Role]) await registerPqc(r);
   else if (cmd === "kem") for (const r of who === "all" ? (["compliance", "auditor"] as const) : [who as "compliance"]) await registerKem(r);
-  else if (cmd === "window") await openWindow(BigInt(who ?? 17_280), BigInt(rest[0] ?? 1_000), rest[1] !== "unscoped");
-  else console.error("usage: keys.ts status | register <role|all> | kem <compliance|auditor|all> | window [blocks] [txs] [unscoped]");
+  // Deployment only (a contract creation is the one thing a cross-VM call cannot do): open, deploy, then close.
+  else if (cmd === "window") await openWindow(BigInt(who ?? 600), BigInt(rest[0] ?? 20), rest[1] !== "unscoped");
+  else if (cmd === "close") await closeWindows();
+  else console.error("usage: keys.ts status | register <role|all> | kem <compliance|auditor|all> | window [blocks] [txs] [unscoped] | close");
 }

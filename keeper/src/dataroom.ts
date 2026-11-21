@@ -13,6 +13,7 @@
  * The epoch keys are derived, not stored: HKDF-SHA-256 of the manager's QoreSeal seed and the epoch number. The
  * keeper runs on ephemeral CI machines, and a key it had to remember would be a key it could lose.
  */
+import { epochPart } from "./chain.js";
 import { hkdf } from "@noble/hashes/hkdf.js";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { encodeAbiParameters, keccak256, parseAbiItem, stringToHex, toHex, type Address, type Hex } from "viem";
@@ -73,10 +74,10 @@ export async function syncEpoch(): Promise<{ epoch: bigint; rotated: boolean }> 
     [epoch, membersHash(members), keccak256(encodeAbiParameters([{ type: "bytes32[]" }], [hashes]))]);
   const [deadline, sig] = await pqAuthorize(Q.dataRoom, RoomAbi, "compliance", "publishEpoch", params);
   await send("qorechain", Q.dataRoom, RoomAbi, "publishEpoch", [epoch, members, hashes, deadline, sig], {
-    gas: 6_000_000n, label: `epoch ${epoch} (${members.length} lenders, ${parts.length} parts)`,
+    gas: 6_000_000n, label: `epoch ${epoch} (${members.length} lenders, ${parts.length} parts)`, memo: `agama data room epoch ${epoch}`,
   });
   for (let k = 0; k < parts.length; k++) {
-    await send("qorechain", Q.dataRoom, RoomAbi, "publishEpochPart", [epoch, BigInt(k), parts[k]], { gas: 1_500_000n, label: `epoch ${epoch} part ${k}` });
+    await send("qorechain", Q.dataRoom, RoomAbi, "publishEpochPart", [epoch, BigInt(k), parts[k]], { gas: 1_500_000n, label: `epoch ${epoch} part ${k}`, memo: `agama data room epoch ${epoch} part ${k}` });
   }
   return { epoch, rotated: true };
 }
@@ -85,22 +86,14 @@ export async function syncEpoch(): Promise<{ epoch: bigint; rotated: boolean }> 
 export async function epochEnvelopeFor(epoch: bigint, account: Address): Promise<Hex | null> {
   const [member, part, at] = await read<readonly [boolean, bigint, bigint]>(Q.dataRoom, RoomAbi, "partOf", [epoch, account]);
   if (!member || at === 0n) return null;
-  const logs = await qore.getLogs({
-    address: Q.dataRoom, event: parseAbiItem("event EpochPart(uint256 indexed epoch, uint256 indexed part, bytes distribution)"),
-    args: { epoch, part }, fromBlock: at, toBlock: at,
-  });
-  return (logs.at(-1)?.args.distribution as Hex) ?? null;
+  return epochPart(epoch, part, at);
 }
 
 /** Part 0, which the auditor (a recipient of every part) can always open. */
 export async function epochEnvelopeForAuditor(epoch: bigint): Promise<Hex | null> {
   const at = await read<bigint>(Q.dataRoom, RoomAbi, "partBlock", [epoch, 0n]);
   if (at === 0n) return null;
-  const logs = await qore.getLogs({
-    address: Q.dataRoom, event: parseAbiItem("event EpochPart(uint256 indexed epoch, uint256 indexed part, bytes distribution)"),
-    args: { epoch, part: 0n }, fromBlock: at, toBlock: at,
-  });
-  return (logs.at(-1)?.args.distribution as Hex) ?? null;
+  return epochPart(epoch, 0n, at);
 }
 
 /** Publishes the loan tape under the current epoch when it is due. */
@@ -122,7 +115,7 @@ export async function publishTape(force = false): Promise<boolean> {
   );
   const [deadline, sig] = await pqAuthorize(Q.dataRoom, RoomAbi, "compliance", "publishReport", params);
   await send("qorechain", Q.dataRoom, RoomAbi, "publishReport", [epoch, TAPE, blob, ct, pt, deadline, sig], {
-    gas: 2_500_000n, label: `loan tape #${n} (epoch ${epoch})`,
+    gas: 2_500_000n, label: `loan tape #${n} (epoch ${epoch})`, memo: `agama data room tape ${n}`,
   });
   return true;
 }

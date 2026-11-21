@@ -1,25 +1,27 @@
 /**
  * Agama's relayer, inside the app: the same path as keeper/src/pqaccounts.ts, for the deployment. The lender signs a
- * plain-text message in QoreX; this route submits it to PqAccountFactory.execute and pays the gas. It holds one
- * secret, RELAYER_PRIVATE_KEY: the relayer's coin-60 key, which only ever pays gas and can only call the factory (its
- * EVM window is scoped to it). The keeper keeps that window open and the relayer funded (keeper/src/cli.ts tick).
+ * plain-text message in QoreX; this route submits it to PqAccountFactory.execute as a hybrid-signed (secp256k1 +
+ * ML-DSA-87) native transaction (lib/server/native.ts) and pays the gas. The relayer has no EVM window: it can only
+ * act through post-quantum transactions. The keeper keeps it funded (keeper/src/cli.ts tick).
  *
  * Nothing here decides whether a message is genuine: the lender's PqAccount checks the ML-DSA-87 signature on chain
- * with pqcVerify. The gas estimate runs that same check, so a message the chain would refuse is refused here before
+ * with pqcVerify. The simulation runs that same check, so a message the chain would refuse is refused here before
  * the relayer spends anything.
  */
-import { createWalletClient, http, parseAbi, type Address, type Hex } from 'viem';
-import { privateKeyToAccount } from 'viem/accounts';
-import { diana, EVM_RPC, qore } from '../chains';
+import { parseAbi, type Address, type Hex } from 'viem';
+import { qore } from '../chains';
 import { QORECHAIN } from '../deployments';
-import { nativeHash } from './explorer';
+import { writeNative } from './native';
+
+export { relayerConfigured } from './native';
 
 const factoryAbi = parseAbi([
   'function execute(address owner, (address target, bytes data)[] calls, string summary, uint256 deadline, bytes pqSignature)',
+  'function accountOf(address owner) view returns (address)',
+  'function nonce() view returns (uint256)',
 ]);
 const ALLOWED = new Set([QORECHAIN.usdc, QORECHAIN.access, QORECHAIN.vault].map((a) => a.toLowerCase()));
 
-export const relayerConfigured = () => /^0x[0-9a-fA-F]{64}$/.test(process.env.RELAYER_PRIVATE_KEY?.trim() ?? '');
 
 type Req = {
   owner: Address;
@@ -43,32 +45,17 @@ export async function submit(req: Req) {
   const pq = req.signature?.pq?.signature;
   if (typeof pq !== 'string' || pq.length > 20_000) throw new Error('the message carries no ML-DSA-87 signature');
 
-  const account = privateKeyToAccount(process.env.RELAYER_PRIVATE_KEY!.trim() as Hex);
-  const wallet = createWalletClient({ account, chain: diana, transport: http(EVM_RPC, { retryCount: 2, retryDelay: 1_500 }) });
   const pqSignature = `0x${Buffer.from(pq, 'base64').toString('hex')}` as Hex;
-  const args = [owner, calls, summary, deadline, pqSignature] as const;
-  // The estimate executes the account's pqcVerify: a bad signature, a stale nonce or a refused call stops here.
-  const gas = await qore.estimateContractGas({ address: QORECHAIN.pqAccountFactory, abi: factoryAbi, functionName: 'execute', args, account });
-  let hash: Hex;
-  try {
-    hash = await wallet.writeContract({ address: QORECHAIN.pqAccountFactory, abi: factoryAbi, functionName: 'execute', args, gas: (gas * 125n) / 100n });
-  } catch (e) {
-    // Two lenders at the same instant can race for the relayer's nonce: the second asks again once.
-    if (!/nonce|already known|replacement/i.test(String((e as Error)?.message))) throw e;
-    await new Promise((r) => setTimeout(r, 2_500));
-    hash = await wallet.writeContract({ address: QORECHAIN.pqAccountFactory, abi: factoryAbi, functionName: 'execute', args, gas: (gas * 125n) / 100n });
-  }
-  const receipt = await qore.waitForTransactionReceipt({ hash, timeout: 50_000 });
-  if (receipt.status !== 'success') throw new Error(`reverted on chain in ${hash}`);
-  console.log(`pq ${summary} for owner ${owner}: ${hash} gas ${receipt.gasUsed}`);
-  // The explorer link in the lender's toast: the native QoreChain hash that carries this EVM transaction.
-  return { txHash: (await nativeHash(hash)) ?? hash, evmHash: hash, gasUsed: String(receipt.gasUsed) };
+  const acc = (await qore.readContract({ address: QORECHAIN.pqAccountFactory, abi: factoryAbi, functionName: 'accountOf', args: [owner] })) as Address;
+  const code = await qore.getCode({ address: acc });
+  const nonce = code && code !== '0x' ? ((await qore.readContract({ address: acc, abi: factoryAbi, functionName: 'nonce' })) as bigint) : 0n;
+  const { hash, gasUsed } = await writeNative(QORECHAIN.pqAccountFactory, factoryAbi, 'execute', [owner, calls, summary, deadline, pqSignature], `agama execute ${acc.toLowerCase()} ${nonce}`);
+  console.log(`pq ${summary} for owner ${owner}: ${hash} (native, hybrid) gas ${gasUsed}`);
+  return { txHash: hash, gasUsed };
 }
 
 /** The reason a refusal shows the lender: the contract's, not viem's whole report. */
 export function refusal(e: unknown) {
   const m = String((e as { shortMessage?: string })?.shortMessage ?? (e as Error)?.message ?? e);
-  // What QoreChain answers an EVM call from an account whose EVM window has lapsed; the keeper reopens it.
-  if (/Missing or invalid parameters/i.test(m)) return "Agama's relayer is reopening its EVM window. Try again in a minute.";
   return m.split('\n')[0].slice(0, 300);
 }
