@@ -20,6 +20,8 @@ const factoryAbi = parseAbi([
   'function accountOf(address owner) view returns (address)',
   'function nonce() view returns (uint256)',
 ]);
+const keyStatusAbi = parseAbi(['function pqcKeyStatus(address) view returns (bool, uint8, bytes, bool)']);
+const NO_KEY = 'Your QoreX account has no post-quantum key on the QoreChain testnet yet: send any transaction from QoreX on Testnet (a small transfer to yourself), then try again.';
 const ALLOWED = new Set([QORECHAIN.usdc, QORECHAIN.access, QORECHAIN.vault].map((a) => a.toLowerCase()));
 
 
@@ -45,6 +47,10 @@ export async function submit(req: Req) {
   const pq = req.signature?.pq?.signature;
   if (typeof pq !== 'string' || pq.length > 20_000) throw new Error('the message carries no ML-DSA-87 signature');
 
+  // The account is the owner's ML-DSA-87 key: without it registered (with proof of possession), the factory refuses.
+  const [registered, , , proven] = (await qore.readContract({ address: '0x0000000000000000000000000000000000000a02', abi: keyStatusAbi, functionName: 'pqcKeyStatus', args: [owner] })) as readonly [boolean, number, Hex, boolean];
+  if (!registered || !proven) throw new Error(NO_KEY);
+
   const pqSignature = `0x${Buffer.from(pq, 'base64').toString('hex')}` as Hex;
   const acc = (await qore.readContract({ address: QORECHAIN.pqAccountFactory, abi: factoryAbi, functionName: 'accountOf', args: [owner] })) as Address;
   const code = await qore.getCode({ address: acc });
@@ -67,6 +73,7 @@ export async function submit(req: Req) {
 export function refusal(e: unknown) {
   const m = String((e as { shortMessage?: string })?.shortMessage ?? (e as Error)?.message ?? e);
   // The account's own check refused it: almost always a message signed for a nonce another action just used.
+  if (m === NO_KEY || /OwnerNotQuantumSafe/.test(m)) return NO_KEY;
   if (/function "execute" reverted/i.test(m)) return 'Your previous action was still being confirmed. Nothing was sent: try again.';
   return m.split('\n')[0].slice(0, 300);
 }

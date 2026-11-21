@@ -14,6 +14,7 @@ import { useActions, useDecision, useOfficerKeys, useUser } from '@/lib/protocol
 import { importSeed, loadKeys, openLetter, sealDossier, unlockKeys } from '@/lib/sealing';
 import { keySignature } from '@/lib/qorex';
 import { useWallet } from '@/lib/wallet';
+import { useKeyReady } from './KeyNotice';
 import { reason } from '@/lib/protocol';
 
 const COUNTRIES: [string, string][] = [
@@ -26,6 +27,8 @@ const COUNTRIES: [string, string][] = [
 type Letter = { decision: 'approved' | 'rejected'; tierName?: string; reasons: string[] };
 
 export function Onboarding() {
+  // Without the ML-DSA-87 key on chain, the lender's Agama account cannot exist: the notice above says what to do.
+  const keyReady = useKeyReady();
   const { account } = useWallet();
   const user = useUser();
   const act = useActions();
@@ -194,7 +197,7 @@ export function Onboarding() {
           <button
             type="button"
             className={`mt-4 ${primaryBtn}`}
-            disabled={!!step || f.name.trim().length < 2 || !f.confirm || !officers.data}
+            disabled={!!step || !keyReady || f.name.trim().length < 2 || !f.confirm || !officers.data}
             onClick={verify}
           >
             {step ? (
