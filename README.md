@@ -47,7 +47,7 @@ testnet, during the fest. Live, with a running keeper and a bridge to Ethereum S
 ## Why private credit needs a post-quantum, encrypted chain
 
 Private credit is a lending market of about $1.7 trillion run on PDFs and data rooms. Putting it on chain hits three
-walls, and QoreChain is the first chain where all three can be solved together:
+walls. QoreChain has what it takes to solve all three together:
 
 | The wall | Why a normal public chain fails | What Agama does on QoreChain |
 |---|---|---|
