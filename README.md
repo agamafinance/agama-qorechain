@@ -331,9 +331,7 @@ relayer on Vercel.
 ## Credits
 
 Written during the fest. Reused, with credit: [Agama on Whitechain](https://github.com/agamafinance/agama-whitechain)
-(the vault accounting, the CCTP V2 codec, the Ethereum leg, the web app's look) and
-an earlier QoreChain build (MIT: `PqcAuth`, the mock precompiles, the
-hand-encoded protobuf, the QoreX provider, the fest-token conversions, the native-lane pattern). QoreChain's kits:
+(the vault accounting, the CCTP V2 codec, the Ethereum leg, the web app's look). QoreChain's kits:
 QoreChain SDK, QoreSeal, QoreSign, qorechain-pqc, QoreX integrations, Asset Kit (Apache-2.0), QoreScan.
 [ZKNox ETHDILITHIUM](https://github.com/ZKNoxHQ/ETHDILITHIUM) (MIT, the Solidity ML-DSA verifier), OpenZeppelin
 Contracts 5.4, forge-std, viem, Next.js.

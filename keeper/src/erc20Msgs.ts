@@ -1,6 +1,4 @@
 /**
- *
- *
  * Protobuf types for the x/erc20 conversion messages, which @qorechain/sdk's
  * default registry does not ship. Field numbers follow cosmos/evm erc20/v1 tx.proto.
  *
