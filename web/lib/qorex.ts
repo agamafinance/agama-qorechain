@@ -70,9 +70,19 @@ export async function withUnlock<T>(request: () => Promise<T>): Promise<T> {
     return await request();
   } catch (e) {
     const n = qorex();
-    if (!n || !/locked/i.test(String((e as Error)?.message ?? e))) throw e;
+    const m = String((e as Error)?.message ?? e);
+    const wrongNetwork = /does not match the active network/i.test(m);
+    if (!n || !(/locked/i.test(m) || wrongNetwork)) throw e;
+    // Locked, or set to another QoreChain network (mainnet is qorechain-vladi): ask QoreX for this one, once.
     await n.enable(CHAIN);
-    return request();
+    try {
+      return await request();
+    } catch (again) {
+      if (/does not match the active network/i.test(String((again as Error)?.message ?? again))) {
+        throw new Error(`QoreX is on another network. Switch it to Testnet (${CHAIN}) and try again.`);
+      }
+      throw again;
+    }
   }
 }
 
