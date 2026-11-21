@@ -69,11 +69,3 @@ export function convertCoin(sender: string, receiver: Hex, denom: string, amount
   const value = new Writer().bytes(1, coin).string(2, receiver).string(3, sender).finish();
   return { typeUrl: '/cosmos.evm.erc20.v1.MsgConvertCoin', value };
 }
-
-/// Sends `amount` uqor from `from` to `to`.
-///   cosmos.bank.v1beta1.MsgSend { from_address=1, to_address=2, amount=3 (Coin{denom=1, amount=2}) }
-export function bankSend(from: string, to: string, amount: bigint): EncodedMsg {
-  const coin = new Writer().string(1, 'uqor').string(2, amount.toString()).finish();
-  const value = new Writer().string(1, from).string(2, to).bytes(3, coin).finish();
-  return { typeUrl: '/cosmos.bank.v1beta1.MsgSend', value };
-}
