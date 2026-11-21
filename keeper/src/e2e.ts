@@ -29,6 +29,8 @@ import { sealKeys } from "./accounts.js";
 import { E, Q } from "./config.js";
 import { artifact } from "./evm.js";
 import { treasuryClient } from "./native.js";
+import { auditTransactions, ecdsaRefused } from "./pq-audit.js";
+const started = new Date(Date.now() - 60_000).toISOString();
 import { CONVERT_COIN_TYPE_URL } from "./erc20Msgs.js";
 import { verifyTxByHash } from "./provenance.js";
 import { refuel, TANK } from "./gastank.js";
@@ -278,6 +280,14 @@ const refusedMsg = await refuel(TANK.perTxQor + 1).then(() => "").catch((e) => S
 check("the chain refuses a payment over the per-payment limit", /limit/.test(refusedMsg), refusedMsg.replace("refused by the chain: ", "").slice(0, 70));
 
 check("every lender transaction: secp256k1 and ML-DSA-87 both verify (QoreSign)", hybridTxs.length > 0 && hybridTxs.every(Boolean), `${hybridTxs.length} transactions`);
+
+// ---- 9. nothing ECDSA-only: no EVM window, and the chain refuses an EVM transaction from Agama's accounts ----
+console.log("\n9. post-quantum only");
+for (const x of await ecdsaRefused(["operator", "relayer"])) {
+  check(`${x.role}: no EVM window, and an ECDSA-only EVM transaction is refused by the chain`, !x.window && x.refused, x.reason.slice(0, 90));
+}
+const audit = await auditTransactions(Date.parse(started));
+check("every transaction Agama's accounts sent during this run carries a verified hybrid signature", audit.bad === 0 && audit.total > 0, `${audit.total - audit.bad}/${audit.total}`);
 
 const failed = results.filter((r) => !r[1]);
 console.log(`\n${results.length - failed.length}/${results.length} checks passed`);
