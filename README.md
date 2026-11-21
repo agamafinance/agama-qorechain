@@ -5,7 +5,6 @@
   <a href="#verify-it-yourself-in-five-minutes">Verify it yourself</a> ·
   <a href="docs/ARCHITECTURE.md">Architecture</a> ·
   <a href="docs/THREAT_MODEL.md">Threat model</a> ·
-  <a href="docs/FINDINGS.md">22 findings</a> ·
   <a href="docs/battery/native-lane.md">Latest battery, with hashes</a>
 </p>
 
