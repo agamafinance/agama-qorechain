@@ -11,7 +11,13 @@
     "keys": "tsx src/keys.ts",
     "fund": "tsx src/fund.ts",
     "deploy": "tsx src/deploy.ts",
-    "e2e": "tsx src/e2e.ts"
+    "e2e": "tsx src/e2e.ts",
+    "health": "tsx src/health.ts",
+    "battery": "tsx src/battery.ts",
+    "pq-battery": "tsx src/pq-battery.ts",
+    "pq-check": "tsx src/pq-check.ts",
+    "pq-audit": "tsx src/pq-audit.ts",
+    "bridge-check": "tsx src/bridge-check.ts"
   },
   "dependencies": {
     "@cosmjs/encoding": "^0.39.0",
