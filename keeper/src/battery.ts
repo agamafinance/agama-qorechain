@@ -326,7 +326,9 @@ const settled = await until("allocation and relay", async () => {
   const s = await read<any>(Q.vault, Vault, "snapshot");
   const sent = await read<bigint>(Q.allocator, Allocator, "totalSent");
   const recv = (await eth.readContract({ address: E.receiver, abi: Receiver, functionName: "totalReceived" })) as bigint;
-  return sent - sentBefore >= (total * 80n) / 100n && sent - sentBefore === recv - recvBefore && s.liquid * 100n <= s.totalAssets * 12n;
+  // What leaves is the excess over the 10% buffer, not a share of these deposits: when earlier exits had drained
+  // the buffer, the keeper refills it first and sends only the rest.
+  return sent > sentBefore && sent - sentBefore === recv - recvBefore && s.liquid * 100n <= s.totalAssets * 12n;
 }, 15 * 60_000);
 const sent = (await read<bigint>(Q.allocator, Allocator, "totalSent")) - sentBefore;
 check("the keeper sent the new money to Ethereum and every burn was minted there", true, `${usd(sent)} in ${(settled / 1000).toFixed(0)}s`);
