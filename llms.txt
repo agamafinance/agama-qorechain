@@ -1,0 +1,68 @@
+# Agama on QoreChain
+
+> A permissioned private-credit vault on QoreChain's testnet (qorechain-diana) where lenders' KYC and the loan tape
+> stay encrypted on chain (ML-KEM-1024, QoreSeal) and every decision, price mark, admin action, bridge attestation and
+> transaction is signed post-quantum (ML-DSA-87, verified on chain with QoreChain's pqcVerify precompile). Built for
+> Build Before Q-Day, the QoreChain Developer Fest, track Encrypted Apps. Live at https://app.agama.finance/qorechain.
+
+## What it is
+
+- Lenders deposit mock USDC into agUSD, a permissioned ERC-4626 vault. 90% of the capital crosses to Ethereum
+  Sepolia over a CCTP V2-format bridge to an asset-backed credit issuer; collections come back and lift the price.
+- Each lender's account is a PqAccount: a contract controlled only by its owner's ML-DSA-87 key (the key of its QoreX
+  wallet), verified on chain with pqcVerify against pqcKeyStatus. The lender signs a plain-text message in QoreX
+  (signArbitrary); a relayer submits it and pays the gas. No EVM window, no grant, no gas for the lender.
+- KYC: sealed in the browser with ML-KEM-1024 + X25519 (QoreSeal) to the compliance officer and the auditor; the
+  chain stores ciphertext. The officer's decision is an ML-DSA-87 signature over the dossier hash, checked by pqcVerify;
+  the decision letter is sealed back to the lender.
+- Data room: the loan tape is published on chain as a QoreSeal private batch under a per-membership-epoch key, sealed
+  to approved lenders and the auditor in parts of eight. Lenders decrypt it in the browser; anyone can check its
+  ciphertext commitment.
+- Every transaction Agama's accounts send on QoreChain is a hybrid-signed (secp256k1 + ML-DSA-87) native
+  MsgCrossVMCall. No role has an EVM window, and the chain refuses an ECDSA-only transaction from any of them.
+  QoreChain's explorer shows each one "quantum-safe, verified on-chain".
+
+## Evidence (latest run, docs/battery/native-lane.md)
+
+- Foundry 200/200 (unit, fuzz, 6 invariants, PqAccount, ML-DSA vectors)
+- Protocol battery 42/42 (8 lenders against the production keeper), protocol e2e 30/30
+- PqAccount battery 26/26, PqAccount attack checks 7/7
+- Browser e2e 7/7 and 9/9 with the official QoreX test double, against the deployed app
+- Explorer 12/12 transaction kinds quantum-safe; pq-audit 278/278 transactions hybrid-verified
+- Bridge messages rebuilt from calldata and state, without logs: 37/37 byte-identical
+- 22 findings from tests and the live keeper, each with its fix: docs/FINDINGS.md
+
+## QoreChain features used
+
+Hybrid ML-DSA-87 transactions; PQC key registration with proof of possession; pqcVerify (0x0a01) and pqcKeyStatus
+(0x0a02) from Solidity; KEM registry (MsgRegisterKEMKey); cross-VM calls (MsgCrossVMCall); EVM windows (closed, refusal
+tested); smart accounts and spending rules (the keeper's gas tank); the fest's fUSD (MsgConvertCoin). Kits: QoreChain
+SDK, QoreSeal, QoreSign, qorechain-pqc, QoreX integrations, Asset Kit (QoreChainHybridHolderGuard, ERC-3643 module),
+QoreScan (CBOM, DORA mapping).
+
+## Key files
+
+- README.md: overview, verification steps, addresses
+- docs/ARCHITECTURE.md: contracts, keeper, app, PqAccounts, the native lane and how readers work without EVM logs
+- docs/THREAT_MODEL.md: every key, what it can and cannot do, quantum and classical attacks
+- docs/PQ_ETHEREUM.md: the Ethereum leg (ML-DSA-44 in Solidity, Merkle WOTS+), measured
+- docs/FINDINGS.md: what the tests found and what was done
+- contracts/src/account/PqAccount.sol: the post-quantum lender account
+- contracts/src/qore/AccessRegistry.sol, AgUSD.sol, DataRoom.sol: registry, vault, data room
+- keeper/src/native.ts, chain.ts, provenance.ts, pq-audit.ts: native hybrid writes, log-free readers, provenance, audit
+- web/lib/server/relay.ts: the relayer (Vercel)
+
+## Addresses (qorechain-diana, EVM chain id 9800)
+
+- agUSD vault 0x0ed07a6af9e1e78c0166a3c02133ac994268be5d
+- AccessRegistry 0x032492a0dc1159d781025a82a3999faf2d360441
+- PqAccountFactory 0x6a319a4ee0a6c1094f604cd893b5e58fdb7d8794
+- DataRoom 0x06b89566a2eef09c964522445ba578dc710ea815
+- PqAttestedMessenger 0x0afb58ce8aa5be74251e61e7b9404529d6087013
+- CrossChainAllocator 0x7e913de8003c0ad626fd2c44d56efea13c28fb17
+
+## Scope
+
+Testnets only; mock USDC; the credit book is simulated. Contract creation is the one EVM transaction left (deployment
+only). The guardian (pause only) and the gas-tank authenticator (15 QOR a day) are classical keys, by design and
+bounded. Licence Apache-2.0.
