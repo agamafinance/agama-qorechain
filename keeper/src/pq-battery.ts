@@ -25,6 +25,7 @@ import { artifact } from "./evm.js";
 import { qorBalance, sendNative, treasuryClient } from "./native.js";
 import { REST, qore, rest, sleep } from "./net.js";
 import { accountOf, nonceOf, submit, textFor, type Call } from "./pqaccounts.js";
+import { decisionLetter } from "./chain.js";
 import { ensureRelayer } from "./relayer.js";
 import { aadFor, officer, SEAL } from "./sealing.js";
 
@@ -93,13 +94,11 @@ for (const l of lenders) {
     await sleep(10_000);
   }
   check(`${l.tag}: ${l.approve ? "approved" : "rejected"}`, st === (l.approve ? 2 : 3), ["None", "Pending", "Approved", "Rejected", "Revoked"][st]);
-  const ev = parseAbiItem(l.approve
-    ? "event Approved(address indexed account, uint8 tier, uint64 expiresAt, bytes32 dossierHash, bytes letter)"
-    : "event Rejected(address indexed account, bytes32 dossierHash, bytes letter)");
-  const head = await qore.getBlockNumber();
-  const logs = await qore.getLogs({ address: Q.access, event: ev as any, args: { account: l.acc } as any, fromBlock: head - 3_000n, toBlock: head });
+  // The officer decides on the native lane: the letter is read from its call (logs first, for older decisions).
+  const mm = await qore.readContract({ address: Q.access, abi: artifact("AccessRegistry").abi, functionName: "members", args: [l.acc] }) as readonly [number, number, bigint, bigint, bigint, bigint, Hex];
+  const found = await decisionLetter(l.acc, mm[5], l.approve, mm[6]);
   try {
-    const letter = JSON.parse(new TextDecoder().decode(open({ chainId: SEAL.chainId, purpose: SEAL.letter, envelope: hexToBytes((logs.at(-1) as any).args.letter as Hex), keys: l.keys, aad: aadFor(l.acc) })));
+    const letter = JSON.parse(new TextDecoder().decode(open({ chainId: SEAL.chainId, purpose: SEAL.letter, envelope: hexToBytes(found!.letter), keys: l.keys, aad: aadFor(l.acc) })));
     check(`${l.tag}: opens its own sealed letter; the officer verified the PqAccount filing`, letter.provenance?.lane === "pq-account" && letter.provenance.postQuantum === true, l.approve ? letter.tierName : letter.reasons?.[0]);
   } catch (e: any) {
     check(`${l.tag}: opens its own sealed letter`, false, String(e?.message ?? e).slice(0, 80));

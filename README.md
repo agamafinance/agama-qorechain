@@ -18,6 +18,11 @@ no key a quantum computer could break can move the money.**
 - **Post-quantum accounts.** Each lender's Agama account is a contract (`PqAccount`) controlled only by the
   ML-DSA-87 key of its QoreX account. Every action is a message signed in QoreX; the account verifies the signature
   **on chain with QoreChain's `pqcVerify`** before it acts. No EVM window, no grant, no gas for the lender.
+- **Nothing Agama sends on QoreChain is ECDSA-only.** The relayer and the keeper write through hybrid-signed
+  (secp256k1 + ML-DSA-87) native `MsgCrossVMCall` transactions: the explorer shows every one *quantum-safe, verified
+  on-chain*. No role has an EVM window, and the chain refuses an ECDSA-only transaction from any of them
+  (`keeper/src/pq-audit.ts`). The bridge, the data room and the compliance officer read what those calls carry from
+  the committed transactions, since a cross-VM call leaves no EVM log.
 
 Built for **Build Before Q-Day**, the QoreChain Developer Fest, on `qorechain-diana`, during the fest.
 Category: **Encrypted Apps**.
@@ -71,7 +76,7 @@ Category: **Encrypted Apps**.
 | Money coming home from Ethereum | attester's ML-DSA-87 signature over the CCTP message | `pqcVerify` in `PqAttestedMessenger` |
 | Money going out to Ethereum | attester's secp256k1 signature **and** ML-DSA-44 (FIPS 204), or a hash-based Merkle WOTS+ one-time signature | `HybridAttestedMessenger` on Sepolia: ML-DSA-44 verified in Solidity (ZKNox), ~8.3M gas; no owner, rotation only by both keys ([docs/PQ_ETHEREUM.md](docs/PQ_ETHEREUM.md)) |
 | Every admin power (config, roles, receivers, attester, officer, manager) | admin's ML-DSA-87 signature | `pqcVerify`; no function checks `msg.sender` for admin powers |
-| Keeper's own EVM transactions | EVM window **scoped** to Agama's six contracts | the chain's EVM lane admission |
+| Every transaction Agama's relayer and keeper send | hybrid signature, secp256k1 + ML-DSA-87, native `MsgCrossVMCall` (no EVM window, none open) | the chain's ante handler (`pqc_hybrid_verify`); `pq-audit.ts` checks every one, and that an ECDSA-only EVM transaction from a role is refused |
 | Keeper's gas | an ed25519 **authenticator** linked to the treasury: `send` QOR only, 5 per payment, 15 a day, 29 days | the chain's spending rule (`abstractaccount`); the treasury's keys never reach the keeper |
 | Pause | guardian (classical key) | can only stop new money; never costs a holder anything |
 
@@ -84,8 +89,8 @@ chain holds for that role, so a mismatched key fails for free instead of as a re
 QoreX integrations (`@qorechain/qorex-types`, `@qorechain/qorex-wallet-mock`), Asset Kit (Solidity:
 `QoreChainHybridHolderGuard`, `IHolderEligibility`, `IERC3643ComplianceModule`), QoreScan (CBOM, DORA mapping, agility template in `docs/cbom`).
 
-**Network functions:** ML-DSA-87 hybrid transactions; PQC key registration with proof of possession; EVM window,
-scoped; PQC signature verification in Solidity (`pqcVerify`); PQC key status in Solidity (`pqcKeyStatus`); QoreSeal
+**Network functions:** ML-DSA-87 hybrid transactions; PQC key registration with proof of possession; EVM windows
+(closed: their refusal of ECDSA-only transactions is tested); PQC signature verification in Solidity (`pqcVerify`); PQC key status in Solidity (`pqcKeyStatus`); QoreSeal
 and the encryption key registry (`MsgRegisterKEMKey`); Fest test tokens (fUSD, via `MsgConvertCoin` and the
 `FestUsdOnRamp`); cross-VM calls (native to EVM, `MsgCrossVMCall`); smart accounts and spending rules (the keeper's gas tank); Asset
 Kit; QoreScan.
@@ -134,11 +139,12 @@ mock USDC `0x1c8669b4e26a642d83748984d19dd5149af8c42b`. Everything is in `deploy
 
 | Role | Address | Keys |
 |---|---|---|
-| Operator, admin, guardian | `qor1qvc7jve4se89maha3sn2cedn589dvny6kskgly` | ML-DSA-87 (registered, PoP), scoped EVM window |
+| Operator, admin, guardian | `qor1qvc7jve4se89maha3sn2cedn589dvny6kskgly` | ML-DSA-87 (registered, PoP); sends native hybrid transactions only, no EVM window |
 | NAV reporter | `qor1gp6jjx2u7h6vrcv2h4rtsxp0al8h4mv37sn064` | ML-DSA-87 only signs |
 | Compliance officer, data room manager | `qor17q0jps4cvvg2x6xm3d2d44pev4shh4lx3x50re` | ML-DSA-87 + ML-KEM-1024 (KEM registry) |
 | Bridge attester | `qor122d73j03vxdzvwlpvzdze30s0gejn2q8g252h7` | ML-DSA-87 towards QoreChain; secp256k1 + ML-DSA-44 (or WOTS+) towards Ethereum |
 | Auditor (view key) | `qor1z0y4zrt2pkxmrgzzvh2cws5azlvf66zckvkx9w` | ML-KEM-1024 (KEM registry) |
+| Relayer (pays lenders' gas) | `qor1pxv6l32qguyrv3xp0hpxehqd9mmlcdwp8c3qmg` | ML-DSA-87 (registered, PoP); native hybrid transactions only, no EVM window |
 
 ## Run it
 
@@ -159,16 +165,18 @@ roles, `~/.config/qorechain/agama-funder.mnemonic` for the funding QoreX account
 
 ```bash
 cd keeper && npm install
-npx tsx src/keys.ts status                    # roles: QOR, ML-DSA-87, ML-KEM-1024, EVM window
+npx tsx src/keys.ts status                    # roles: QOR, ML-DSA-87, ML-KEM-1024, EVM window (none)
 npx tsx src/fund.ts 55 3 8 3 3                # QOR to operator, reporter, compliance, attester, auditor
 npx tsx src/keys.ts register all              # ML-DSA-87 keys with proof of possession
 npx tsx src/keys.ts kem all                   # officers' ML-KEM-1024 keys in the KEM registry
 npx tsx src/cards.ts                          # QoreSign-signed recipient cards
 npx tsx src/keys.ts window 1200 80 unscoped && (cd ../contracts && forge build) && npx tsx src/deploy.ts
-npx tsx src/keys.ts window                    # the keeper's window, scoped to Agama's contracts
+npx tsx src/keys.ts close                     # contract creation is the one EVM transaction: close the window after
 npx tsx src/cli.ts loop 345                   # relay, book, rebalance, NAV, queue, compliance, data room
 npx tsx src/gastank.ts link                   # the treasury links the keeper's gas tank (spending rule)
-npx tsx src/e2e.ts                            # on-chain end to end (27 checks)
+npx tsx src/e2e.ts                            # on-chain end to end, ending with the post-quantum-only checks
+npx tsx src/pq-audit.ts                       # every transaction hybrid-verified, no window, ECDSA-only refused
+npx tsx src/bridge-check.ts                   # bridge messages rebuilt from calldata == their MessageSent logs
 (cd ../web && node e2e/browser.mjs)           # browser end to end with the QoreX test double (9 checks)
 ```
 

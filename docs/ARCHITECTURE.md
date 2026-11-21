@@ -8,7 +8,7 @@ contracts/   Solidity 0.8.28, Foundry, OpenZeppelin 5.4, QoreChain Asset Kit
   l1/        AgamaL1Receiver, AbfAssetIssuer (Ethereum Sepolia)
 keeper/      TypeScript: @qorechain/sdk, qoreseal, qoresign, pqc, viem
   accounts   role accounts (coin 60, indexes 10-14) and the funding QoreX account (coin 118)
-  keys       ML-DSA-87 registration with PoP, ML-KEM-1024 publication, scoped EVM window
+  keys       ML-DSA-87 registration with PoP, ML-KEM-1024 publication; windows closed (deploy only)
   cards      QoreSign-signed QoreSeal recipient cards for the officers
   deploy     both legs, idempotent, every admin step ML-DSA-87 signed
   relay      CCTP messages both ways: secp256k1 attestations to Ethereum, ML-DSA-87 to QoreChain
@@ -37,14 +37,40 @@ to Agama. Its Agama account is a `PqAccount`, a contract at an address fixed by 
 
 1. The app builds the calls (faucet, approve + deposit, redeem, the encryption key, the sealed application) and asks
    QoreX to sign the text (`signArbitrary`: ADR-36 secp256k1 + ML-DSA-87). The lender reads what it signs.
-2. The relayer (`keeper/src/pqaccounts.ts`) checks both halves against the keys on chain with QoreSign, then sends
-   `factory.execute`. It pays the gas, from its own scoped EVM window.
+2. The relayer (`web/lib/server/relay.ts` deployed, `keeper/src/pqaccounts.ts` locally) sends `factory.execute` as a
+   hybrid-signed (secp256k1 + ML-DSA-87) native `MsgCrossVMCall`, simulated first. It pays the gas. It has no EVM
+   window: the chain would refuse an ECDSA-only transaction from it.
 3. The account rebuilds the text, reads its owner's key from `pqcKeyStatus`, verifies the ML-DSA-87 signature with
    `pqcVerify`, bumps its nonce and makes the calls, to Agama's three contracts only.
 
 The relayer can delay a message, never change one: a different call, amount, summary, account, chain or nonce is a
 different text. A rotated key applies at once. The factory owns the Asset Kit's hybrid holder guard and exempts
 each account it creates, only for an owner whose ML-DSA-87 key is registered with proof of possession.
+
+## Native lane only, and what that changes for readers
+
+Every transaction Agama's accounts send on QoreChain (keeper, relayer, compliance officer's and data room manager's
+calls, NAV marks, the bridge's allocations and settlements) is a hybrid-signed native `MsgCrossVMCall`, and the
+explorer shows each one *quantum-safe, verified on-chain*. An EVM transaction carries ECDSA alone; the only one Agama
+would still send is a contract creation, which a cross-VM call cannot do: deployment only, from a window opened for
+it and closed after. All windows are closed (`keys.ts close`), and `pq-audit.ts` checks that every transaction since
+the switch is hybrid-verified and that the chain refuses an ECDSA-only one from each role.
+
+A cross-VM call executes the contract but emits no EVM log that `eth_getLogs` serves. Everything that used to be
+read from events is read from the committed transaction (`keeper/src/chain.ts`, `web/lib/native.ts`), found by the
+indexed `crossvm_request.target_contract` event or by the block the contract's state points at, and checked against
+state before it is used:
+
+| Was read from | Now, for native calls | Checked against |
+|---|---|---|
+| `MessageSent` (bridge, QoreChain to Ethereum) | the CCTP message rebuilt byte for byte from `allocate`'s amount, the messenger's `sent` counter at the block before and of the transaction (it must move by exactly one), and the contracts' configuration | `bridge-check.ts`: all 37 logged messages rebuilt identical; Sepolia accepts the rebuilt message's attestation |
+| `EpochPart` (a lender's part of the epoch key) | `publishEpochPart` calldata in the block `partOf` names | keccak256 = `partHash`, which the manager signed |
+| `ReportPublished` (a sealed tape) | `publishReport` calldata in the report's block | its ciphertext commitment, stored by the contract |
+| `Approved` / `Rejected` (decision letter) | the officer's `approve` / `reject` calldata in `decidedBlock` | the member's dossier hash; the chain accepted it only with the officer's ML-DSA-87 signature over keccak256(letter) |
+| `DossierFiled` + `Executed` (where a dossier came from) | the relayer's `factory.execute` calldata | QoreSign on the relayer's transaction, and the owner's ML-DSA-87 signature re-verified off chain over the rebuilt text, for the one nonce below the account's current one that verifies |
+| `NavReported` (price history) | `reportNav` calls | the vault's `sharePrice` read at that block |
+
+Old logs stay readable: every reader takes both, merged.
 
 ## Why each piece is where it is
 

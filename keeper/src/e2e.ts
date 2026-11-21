@@ -33,6 +33,7 @@ import { auditTransactions, ecdsaRefused } from "./pq-audit.js";
 const started = new Date(Date.now() - 60_000).toISOString();
 import { CONVERT_COIN_TYPE_URL } from "./erc20Msgs.js";
 import { verifyTxByHash } from "./provenance.js";
+import { decisionLetter, reportBlob } from "./chain.js";
 import { refuel, TANK } from "./gastank.js";
 import { eth, qore, REST, sleep } from "./net.js";
 import { aadFor, officer, SEAL } from "./sealing.js";
@@ -146,12 +147,9 @@ if (member[0] !== 2) await reviewDossiers();
 await sleep(3_000);
 check("lender approved and eligible", await read<boolean>(Q.access, Access, "isEligible", [twin]));
 const m2 = await read<readonly [number, number, bigint, bigint, bigint, bigint, Hex]>(Q.access, Access, "members", [twin]);
-const approvedLogs = await qore.getLogs({
-  address: Q.access, event: parseAbiItem("event Approved(address indexed account, uint8 tier, uint64 expiresAt, bytes32 dossierHash, bytes letter)"),
-  args: { account: twin }, fromBlock: m2[5], toBlock: m2[5],
-});
+const approvedLetter = (await decisionLetter(twin, m2[5], true, m2[6]))!;
 const letter = JSON.parse(new TextDecoder().decode(open({
-  chainId: SEAL.chainId, purpose: SEAL.letter, envelope: hexToBytes(approvedLogs[0].args.letter!), keys, aad: aadFor(twin),
+  chainId: SEAL.chainId, purpose: SEAL.letter, envelope: hexToBytes(approvedLetter.letter), keys, aad: aadFor(twin),
 }))) as Letter;
 check("lender opens its sealed decision letter", letter.decision === "approved", `${letter.tierName}, until ${new Date(letter.expiresAt! * 1000).toISOString().slice(0, 10)}`);
 check("the letter names the dossier the officer read", letter.dossierHash === keccak256(stored));
@@ -184,9 +182,14 @@ const FUSD_IN = 100_000_000n;
 {
   // Each run spends 100 fest fUSD; when the lender's bank runs dry, the operator (which holds the rest) tops it up.
   const r = (await (await fetch(`${REST}/cosmos/bank/v1beta1/spendable_balances/${lender}/by_denom?denom=erc20:${FUSD}`, { headers: { "user-agent": "curl/8.7.1" } })).json()) as any;
-  if (BigInt(r.balance?.amount ?? "0") < FUSD_IN) {
+  const have = BigInt(r.balance?.amount ?? "0");
+  if (have < FUSD_IN) {
     const op = (await (await import("./accounts.js")).account("operator")).cosmos;
-    await (await import("./native.js")).sendNative("operator", [{ typeUrl: "/cosmos.bank.v1beta1.MsgSend", value: { fromAddress: op, toAddress: lender, amount: [{ denom: `erc20:${FUSD}`, amount: String(FUSD_IN * 2n) }] } }], "hybrid", 250_000);
+    const o = (await (await fetch(`${REST}/cosmos/bank/v1beta1/spendable_balances/${op}/by_denom?denom=erc20:${FUSD}`, { headers: { "user-agent": "curl/8.7.1" } })).json()) as any;
+    // Up to two runs' worth, and never more than the operator holds (the fest's faucet is the only source).
+    const give = [FUSD_IN * 2n, BigInt(o.balance?.amount ?? "0")].reduce((a, b) => (a < b ? a : b));
+    if (give + have < FUSD_IN) throw new Error(`not enough fest fUSD left: the lender has ${have}, the operator ${give}`);
+    await (await import("./native.js")).sendNative("operator", [{ typeUrl: "/cosmos.bank.v1beta1.MsgSend", value: { fromAddress: op, toAddress: lender, amount: [{ denom: `erc20:${FUSD}`, amount: String(give) }] } }], "hybrid", 250_000);
     await sleep(5_000);
   }
 }
@@ -237,8 +240,8 @@ check("lender is a member of the current epoch", await read<boolean>(Q.dataRoom,
 const myPart = await epochEnvelopeFor(epochs - 1n, twin);
 const ek = openEpochKey({ chainId: SEAL.chainId, purpose: SEAL.epoch, envelope: hexToBytes(myPart!), keys });
 const [last] = await read<{ blockNumber: bigint; ciphertextCommitment: Hex }[]>(Q.dataRoom, Room, "latestReports", [1n]);
-const rLog = (await qore.getLogs({ address: Q.dataRoom, event: parseAbiItem("event ReportPublished(uint256 indexed index, uint256 indexed epoch, bytes32 indexed kind, bytes blob, bytes32 ciphertextCommitment, bytes32 plaintextCommitment)"), fromBlock: last.blockNumber, toBlock: last.blockNumber })).at(-1)!;
-const opened = openBatch({ blob: hexToBytes(rLog.args.blob!), keys: [ek] });
+const lastBlob = (await reportBlob((await read<bigint>(Q.dataRoom, Room, "reportCount")) - 1n, last.blockNumber, last.ciphertextCommitment))!;
+const opened = openBatch({ blob: hexToBytes(lastBlob.blob), keys: [ek] });
 const tape = JSON.parse(new TextDecoder().decode(opened.data)) as LoanTape;
 check("lender decrypts the loan tape", tape.loans.length === 12, `${tape.loans.length} facilities, book ${usd(BigInt(tape.book))}, 30dpd ${tape.delinquency.dpd30Bps / 100}%`);
 check("ciphertext commitment matches the chain", toHex(opened.ciphertextCommitment) === last.ciphertextCommitment);

@@ -18,7 +18,7 @@ Agama on QoreChain is ever encrypted to a classical key alone, and why no key th
 | Data room manager (same account) | ML-DSA-87 | start epochs, publish tapes | include a member the registry does not approve right now |
 | Auditor | ML-KEM-1024 view key | read every dossier, letter, epoch and tape | change anything |
 | Bridge attester | ML-DSA-87 towards QoreChain; secp256k1 + ML-DSA-44 (or Merkle WOTS+) towards Ethereum | mint on QoreChain only what Ethereum burned towards the allocator; mint on Ethereum only what QoreChain burned towards the receiver | mint anywhere with its secp256k1 key alone |
-| Operator | secp256k1 + ML-DSA-87, EVM window scoped to Agama's 6 contracts | start allocations (to the fixed receiver, above the reserve floor), relay messages and signed actions | choose where money goes, change anything, call any contract outside the scope |
+| Operator | secp256k1 + ML-DSA-87 on every transaction (native lane; no EVM window, so its secp256k1 key alone can send nothing) | start allocations (to the fixed receiver, above the reserve floor), relay messages and signed actions | choose where money goes, change anything, call any contract outside the scope |
 | Gas tank key | ed25519 authenticator on the treasury | send the treasury's QOR, 5 per payment, 15 a day, until expiry | anything else; the limits are the chain's, revocable by the treasury. Ed25519 is classical: a quantum adversary could spend this allowance, and only it |
 | Guardian | secp256k1 (classical) | pause deposits and exits | anything that costs a holder; unpausing needs the admin's PQ signature |
 | Lender | QoreX: secp256k1 + ML-DSA-87 on every transaction, plus a QoreSeal key held in the browser | deposit, exit, transfer to other approved lenders, read its letter and the data room | hold agUSD unless approved and still a hybrid holder |
@@ -55,7 +55,10 @@ Agama on QoreChain is ever encrypted to a classical key alone, and why no key th
 - **A revoked or expired lender.** Burns are never gated: it can always redeem or queue an exit; it cannot transfer.
 - **Precompile absent (e.g. mainnet today).** The Asset Kit guard fails closed: nobody is eligible.
 - **A keeper or operator key stolen.** It can only start allocations to the fixed receiver above the floor, and
-  relay. Its EVM window is scoped to Agama's contracts and bounded in blocks, transactions and value.
+  relay. A quantum adversary who recovers its secp256k1 key from a public key still cannot send: every role has its
+  EVM window closed, so the chain refuses an ECDSA-only transaction, and a native one needs the ML-DSA-87 half too.
+- **The relayer's key stolen (it pays lenders' gas).** It can only submit what lenders signed: a PqAccount verifies
+  the owner's ML-DSA-87 signature on chain. Same as the operator for its own transactions: hybrid or nothing.
 - **A mismatched or rotated PQ key.** Every signature the keeper produces is checked locally with qorechain-pqc against
   the key the chain holds before it is sent.
 
