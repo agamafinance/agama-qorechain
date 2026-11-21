@@ -46,6 +46,14 @@ jobs:
           key: keeper-state-${{ github.run_id }}
           restore-keys: keeper-state-
       - run: npm ci
+      # The runway of every gas-paying account, in the run's summary. A warning never stops the keeper.
+      - name: health
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          { echo '```'; npx tsx src/health.ts 3; } 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"; s=$?; echo '```' >> "$GITHUB_STEP_SUMMARY"; exit $s
+        env:
+          QORE_MNEMONIC: ${{ secrets.QORE_MNEMONIC }}
       - run: npx tsx src/cli.ts loop 345
         env:
           QORE_MNEMONIC: ${{ secrets.QORE_MNEMONIC }}
