@@ -27,7 +27,7 @@ no key a quantum computer could break can move the money.**
 Built for **Build Before Q-Day**, the QoreChain Developer Fest, on `qorechain-diana`, during the fest.
 Category: **Encrypted Apps**.
 
-> Live on the QoreChain and Ethereum Sepolia testnets. Tests: 200 Foundry, a 40-check battery of 8 lenders against the production keeper, 26 PqAccount checks, 29 on-chain e2e checks, 207/207 transactions hybrid-verified by `pq-audit`, 7 + 9 browser e2e
+> Live on the QoreChain and Ethereum Sepolia testnets. Tests: 200 Foundry, a 42-check battery of 8 lenders against the production keeper, 26 PqAccount checks, 30 on-chain e2e checks, 278/278 transactions hybrid-verified by `pq-audit`, 7 + 9 browser e2e
 > checks with the official QoreX test double.
 
 ## What happens to a lender
@@ -186,7 +186,7 @@ npx tsx src/bridge-check.ts                   # bridge messages rebuilt from cal
 - [docs/PQ_ETHEREUM.md](docs/PQ_ETHEREUM.md): making the Ethereum leg quantum resilient, every option, measured
 - [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md): what each key can do, what a quantum adversary can and cannot do
 - [docs/E2E.md](docs/E2E.md): the end-to-end runs, on chain and in the browser
-- [docs/battery/native-lane.md](docs/battery/native-lane.md): every suite after the switch to the native lane, with hashes: explorer 11/11 quantum-safe, audit 207/207
+- [docs/battery/native-lane.md](docs/battery/native-lane.md): every suite after the switch to the native lane, with hashes: explorer 12/12 quantum-safe, audit 278/278
 - [docs/FINDINGS.md](docs/FINDINGS.md): everything the tests turned up, and what was done
 - [docs/cbom](docs/cbom): QoreScan CBOM, DORA mapping, crypto-agility template
 - [AI_USAGE.md](AI_USAGE.md)

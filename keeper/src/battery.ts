@@ -249,10 +249,12 @@ phase = "C refusals";
 console.log(`\n== ${phase}`);
 {
   const r = refused[0];
+  // Before and after, not zero: an index reused from an older battery may hold what it got while it was approved.
+  const [vBefore, uBefore] = [await read<bigint>(Q.vault, Vault, "balanceOf", [r.twin]), await read<bigint>(Q.usdc, Usdc, "balanceOf", [r.twin])];
   const bad = await native(r, "deposit while refused", [
     call(r, Q.usdc, Usdc, "faucet", []), call(r, Q.usdc, Usdc, "approve", [Q.vault, maxUint256]), call(r, Q.vault, Vault, "deposit", [1_000_000_000n, r.twin]),
   ], 900_000, true);
-  check("a refused lender's deposit fails on chain, atomically", bad.failed && (await read<bigint>(Q.vault, Vault, "balanceOf", [r.twin])) === 0n && (await read<bigint>(Q.usdc, Usdc, "balanceOf", [r.twin])) === 0n,
+  check("a refused lender's deposit fails on chain, atomically", bad.failed && (await read<bigint>(Q.vault, Vault, "balanceOf", [r.twin])) === vBefore && (await read<bigint>(Q.usdc, Usdc, "balanceOf", [r.twin])) === uBefore,
     "the faucet mint in the same transaction rolled back too");
   const short = await native(r, "publish a 1,000-byte key", [call(r, Q.access, Access, "publishEncryptionKey", [toHex(new Uint8Array(1000))])], 500_000, true);
   check("a key that is not ML-KEM-1024 is refused", short.failed);
@@ -309,8 +311,9 @@ else {
   await native(a, "agUSD to another approved lender", [call(a, Q.vault, Vault, "transfer", [b.twin, amount])], 800_000);
   check("agUSD moves between two approved lenders", (await read<bigint>(Q.vault, Vault, "balanceOf", [b.twin])) - bBefore === amount);
   a.shares! -= amount; b.shares! += amount;
+  const refusedBefore = await read<bigint>(Q.vault, Vault, "balanceOf", [refused[0].twin]);
   const toRefused = await native(a, "agUSD to a refused account", [call(a, Q.vault, Vault, "transfer", [refused[0].twin, amount])], 600_000, true);
-  check("agUSD cannot be sent to a refused account", toRefused.failed && (await read<bigint>(Q.vault, Vault, "balanceOf", [refused[0].twin])) === 0n);
+  check("agUSD cannot be sent to a refused account", toRefused.failed && (await read<bigint>(Q.vault, Vault, "balanceOf", [refused[0].twin])) === refusedBefore);
 }
 
 // ---------------------------------------------------------------------------

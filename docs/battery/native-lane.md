@@ -8,15 +8,15 @@ Every write Agama's accounts make on QoreChain is now a hybrid-signed (secp256k1
 |---|---|
 | Bridge rebuild (`keeper/src/bridge-check.ts`) | **37/37** allocation messages rebuilt from calldata and state, identical to their `MessageSent` logs |
 | Bridge round trip, native both ways | `settleReturn` `0859B119…` (30 USDC home), `allocate` `649917EA…` relayed to Sepolia `0x8ae91b45…`; the e2e and battery crossed again (`E741A474…`, `5F73333C…`) |
-| Protocol e2e (`keeper/src/e2e.ts`) | **29/29**, the fest fUSD leg skipped (no fest fUSD left to test with) |
+| Protocol e2e (`keeper/src/e2e.ts`) | **30/30** with the fest fUSD leg (fUSD claimed on five faucet addresses and collected with `collect.ts`; an earlier run without fUSD: 29/29, that leg skipped) |
 | PqAccount battery (`keeper/src/pq-battery.ts`, PQ_BASE=32) | **26/26** |
-| Protocol battery (`keeper/src/battery.ts`, BATTERY_BASE=48) | **40/40**, 30 lender transactions, 7 min; the two fest fUSD legs skipped |
+| Protocol battery (`keeper/src/battery.ts`, BATTERY_BASE=200) | **42/42** with the fest fUSD legs, 31 lender transactions, 7 min (at BATTERY_BASE=56, indexes an older battery had approved, two refusal checks read a balance those accounts already held: the checks now compare before and after) |
 | PqAccount checks (`keeper/src/pq-check.ts`) | **7/7** |
 | Browser, simple path (`web/e2e/onboarding.mjs`, production) | **7/7** |
 | Browser, full path (`web/e2e/browser.mjs`, production) | **9/9**, four runs in a row |
 | Browser, locked QoreX (`web/e2e/locked.mjs`, production) | **pass**; the toast links the native hash |
-| Explorer (`web/e2e/explorer.mjs`) | **11/11** kinds shown *quantum-safe, verified on-chain*, ML-DSA-87 |
-| Post-quantum audit (`keeper/src/pq-audit.ts`) | **207/207** transactions since the switch hybrid-verified; no window open; an ECDSA-only EVM transaction from the operator and from the relayer refused by the chain |
+| Explorer (`web/e2e/explorer.mjs`) | **12/12** kinds (11 below, and the keeper's NAV mark `186ADE12…`) shown *quantum-safe, verified on-chain*, ML-DSA-87 |
+| Post-quantum audit (`keeper/src/pq-audit.ts`) | **278/278** transactions since the switch hybrid-verified; no window open; an ECDSA-only EVM transaction from the operator and from the relayer refused by the chain |
 
 ## Explorer
 
