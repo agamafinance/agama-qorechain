@@ -44,10 +44,18 @@ async function sequence(address: string) {
   return { accountNumber: BigInt(acc.account_number ?? '0'), sequence: BigInt(acc.sequence ?? '0') };
 }
 
-/** Two instances signing at once: on "account sequence mismatch, expected N", sign again with N after a block. */
-async function sendNative(messages: EncodeObject[], gas: number, memo: string): Promise<string> {
+/**
+ * Two instances signing at once: on "account sequence mismatch, expected N", sign again with N after a block. Before
+ * signing again it asks `done` whether the work already landed: a broadcast can be included even though its caller
+ * saw an error, and sending the same PqAccount message twice makes the second one revert (FINDINGS 22).
+ */
+async function sendNative(messages: EncodeObject[], gas: number, memo: string, done?: () => Promise<string | null>): Promise<string> {
   let forced: bigint | undefined;
   for (let attempt = 0; ; attempt++) {
+    if (attempt > 0 && done) {
+      const landed = await done();
+      if (landed) return landed;
+    }
     try {
       const acc = relayer();
       const { accountNumber, sequence: fetched } = await sequence(acc.cosmos);
@@ -87,7 +95,7 @@ async function committed(hash: string) {
 }
 
 /** One contract call from the relayer, on the native lane. Returns the native hash, the one the explorer knows. */
-export async function writeNative(address: Address, abi: Abi, functionName: string, args: readonly unknown[], memo: string) {
+export async function writeNative(address: Address, abi: Abi, functionName: string, args: readonly unknown[], memo: string, done?: () => Promise<string | null>) {
   const acc = relayer();
   const data = encodeFunctionData({ abi, functionName, args } as never);
   // The simulation runs the contract, the PqAccount's pqcVerify included: a refused message costs nothing.
@@ -99,7 +107,7 @@ export async function writeNative(address: Address, abi: Abi, functionName: stri
   };
   for (let attempt = 0; ; attempt++) {
     try {
-      const hash = await sendNative([msg], gas, memo);
+      const hash = await sendNative([msg], gas, memo, done);
       const t = await committed(hash);
       const executed = (t.tx_response.events ?? []).some(
         (e: { type: string; attributes: { key: string; value: string }[] }) => e.type === 'crossvm_response' && e.attributes.some((x) => x.key === 'status' && x.value === 'executed'),
@@ -107,6 +115,9 @@ export async function writeNative(address: Address, abi: Abi, functionName: stri
       if (t.tx_response.code !== 0 || !executed) throw new Error(`the call was not executed (${hash})`);
       return { hash, gasUsed: String(t.tx_response.gas_used) };
     } catch (e) {
+      // Already done by an earlier attempt (its broadcast landed): that transaction is the answer, not the error.
+      const landed = done ? await done().catch(() => null) : null;
+      if (landed) return { hash: landed, gasUsed: '0' };
       if (attempt < 2 && /out of gas/i.test(String((e as Error)?.message ?? e))) {
         gas = Math.ceil(gas * 1.6);
         continue;
@@ -114,6 +125,17 @@ export async function writeNative(address: Address, abi: Abi, functionName: stri
       throw e;
     }
   }
+}
+
+/** The relayer's executed transaction carrying `memo`, among its latest ones, or null. One event per query. */
+export async function landedWithMemo(memo: string): Promise<string | null> {
+  const q = encodeURIComponent(`message.sender='${relayer().cosmos}'`);
+  const r = await json(`/cosmos/tx/v1beta1/txs?query=${q}&order_by=ORDER_BY_DESC&pagination.limit=30`).catch(() => null);
+  for (const t of (r?.tx_responses ?? []) as { txhash: string; code: number; tx?: { body?: { memo?: string } }; events?: { type: string; attributes: { key: string; value: string }[] }[] }[]) {
+    const executed = (t.events ?? []).some((e) => e.type === 'crossvm_response' && e.attributes.some((x) => x.key === 'status' && x.value === 'executed'));
+    if (t.code === 0 && executed && t.tx?.body?.memo === memo) return t.txhash;
+  }
+  return null;
 }
 
 export const isRevert = (e: unknown) => e instanceof BaseError && !!e.walk((c) => c instanceof ContractFunctionRevertedError);

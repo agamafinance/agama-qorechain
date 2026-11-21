@@ -11,7 +11,7 @@
 import { parseAbi, type Address, type Hex } from 'viem';
 import { qore } from '../chains';
 import { QORECHAIN } from '../deployments';
-import { writeNative } from './native';
+import { landedWithMemo, writeNative } from './native';
 
 export { relayerConfigured } from './native';
 
@@ -49,7 +49,14 @@ export async function submit(req: Req) {
   const acc = (await qore.readContract({ address: QORECHAIN.pqAccountFactory, abi: factoryAbi, functionName: 'accountOf', args: [owner] })) as Address;
   const code = await qore.getCode({ address: acc });
   const nonce = code && code !== '0x' ? ((await qore.readContract({ address: acc, abi: factoryAbi, functionName: 'nonce' })) as bigint) : 0n;
-  const { hash, gasUsed } = await writeNative(QORECHAIN.pqAccountFactory, factoryAbi, 'execute', [owner, calls, summary, deadline, pqSignature], `agama execute ${acc.toLowerCase()} ${nonce}`);
+  const memo = `agama execute ${acc.toLowerCase()} ${nonce}`;
+  // This message is done once the account's nonce has moved past the one it was signed for, by the transaction
+  // carrying its memo: then a retry must not send it again, and an error after it landed is not the lender's error.
+  const done = async () => {
+    const now = (await qore.readContract({ address: acc, abi: factoryAbi, functionName: 'nonce' }).catch(() => 0n)) as bigint;
+    return now > nonce ? landedWithMemo(memo) : null;
+  };
+  const { hash, gasUsed } = await writeNative(QORECHAIN.pqAccountFactory, factoryAbi, 'execute', [owner, calls, summary, deadline, pqSignature], memo, done);
   console.log(`pq ${summary} for owner ${owner}: ${hash} (native, hybrid) gas ${gasUsed}`);
   return { txHash: hash, gasUsed };
 }

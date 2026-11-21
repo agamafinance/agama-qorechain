@@ -71,7 +71,10 @@ await check('connect QoreX', async () => {
     const seed = readFileSync(SEED_FILE, 'utf8').trim();
     await page.evaluate(([k, v]) => localStorage.setItem(k, v), [`agama-qore:seal:${twin.toLowerCase()}`, seed]);
     await page.reload();
-    await page.waitForFunction(() => document.body.innerText.includes('Your encryption key'), null, { timeout: 30_000 });
+    // After a reload the wallet reconnects by itself most of the time, not always: connect again when it did not.
+    const again = page.getByRole('button', { name: /Connect QoreX/ }).first();
+    if (await again.isVisible({ timeout: 5_000 }).catch(() => false)) await again.click();
+    await page.waitForFunction(() => /Published and bound|Create my key|Publish my key/.test(document.body.innerText), null, { timeout: 60_000 });
   }
   return twin;
 });

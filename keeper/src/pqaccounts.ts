@@ -12,7 +12,7 @@ import type { MessageSignature } from "@qorechain/qoresign";
 import { account } from "./accounts.js";
 import { Q } from "./config.js";
 import { artifact } from "./evm.js";
-import { sendNative, writeNative } from "./native.js";
+import { landedWithMemo, sendNative, writeNative } from "./native.js";
 import { CHAIN_ID, REST, qore } from "./net.js";
 
 export type Call = { target: Address; data: Hex };
@@ -59,7 +59,9 @@ export async function submit(req: { owner: Address; calls: Call[]; summary: stri
   // The simulation (writeNative) runs the account's pqcVerify first, so a refused message costs nothing.
   const pqSignature = ("0x" + Buffer.from(req.signature.pq.signature, "base64").toString("hex")) as Hex;
   const args = [owner, calls, summary, deadline, pqSignature];
-  const { hash, gasUsed: used } = await writeNative("relayer", Q.pqAccountFactory, factoryAbi, "execute", args, `agama execute ${acc.toLowerCase()} ${nonce}`);
+  const memo = `agama execute ${acc.toLowerCase()} ${nonce}`;
+  const done = async () => ((await nonceOf(acc).catch(() => 0n)) > nonce ? landedWithMemo("relayer", memo) : null);
+  const { hash, gasUsed: used } = await writeNative("relayer", Q.pqAccountFactory, factoryAbi, "execute", args, memo, undefined, done);
   const receipt = { gasUsed: used };
   const digest = createHash("sha256").update(text).digest("hex").slice(0, 16);
   console.log(new Date().toISOString(), `pq ${summary.split("\n")[0]} for ${acc} (owner ${owner}): ${hash} gas ${receipt.gasUsed} (message ${digest})`);

@@ -36,9 +36,14 @@ async function sequence(address: string) {
  * Two senders on one account (the keeper and the app's relayer, two serverless instances) can sign the same sequence:
  * on "account sequence mismatch, expected N" it signs again with N, after at least a block.
  */
-export async function sendNative(role: Role, messages: EncodeObject[], mode: "hybrid" | "classical" = "hybrid", gas = 800_000, memo = "") {
+export async function sendNative(role: Role, messages: EncodeObject[], mode: "hybrid" | "classical" = "hybrid", gas = 800_000, memo = "", done?: () => Promise<string | null>) {
   let forced: bigint | undefined;
   for (let attempt = 0; ; attempt++) {
+    // A broadcast can land although its caller saw an error: never send the same work twice (FINDINGS 22).
+    if (attempt > 0 && done) {
+      const landed = await done();
+      if (landed) return landed;
+    }
     try {
       return await sendNativeOnce(role, messages, mode, gas, memo, forced);
     } catch (e) {
@@ -82,6 +87,14 @@ export const crossVmMsg = (sender: string, target: Address, data: Hex): EncodeOb
   value: { sender, sourceVm: "cosmwasm", targetVm: "evm", targetContract: target, payload: hexToBytes(data), funds: [], async: false, asyncGasLimit: "0", asyncMaxFactor: "0" },
 });
 
+/** `role`'s executed transaction carrying `memo`, among its latest ones, or null. One event per query. */
+export async function landedWithMemo(role: Role, memo: string): Promise<string | null> {
+  const sender = (await account(role)).cosmos;
+  const r = await rest<any>(`/cosmos/tx/v1beta1/txs?query=${encodeURIComponent(`message.sender='${sender}'`)}&order_by=ORDER_BY_DESC&pagination.limit=30`).catch(() => null);
+  for (const t of r?.tx_responses ?? []) if (t.tx?.body?.memo === memo && executedOnEvm({ tx_response: t })) return t.txhash;
+  return null;
+}
+
 /** The committed transaction, once a node has indexed it. */
 export async function committed(hash: string, tries = 12): Promise<any> {
   for (let i = 0; i < tries; i++) {
@@ -103,7 +116,7 @@ export const executedOnEvm = (t: any) =>
  * transaction is undone and it is sent again with 1.6 times the gas, twice at most. Leaves no EVM logs: readers
  * decode the calldata of the committed transaction (chain.ts in the keeper, lib/native.ts in the app).
  */
-export async function writeNative(role: Role, address: Address, abi: Abi, functionName: string, args: unknown[], memo: string, fallbackGas?: bigint) {
+export async function writeNative(role: Role, address: Address, abi: Abi, functionName: string, args: unknown[], memo: string, fallbackGas?: bigint, done?: () => Promise<string | null>) {
   const acc = await account(role);
   const data = encodeFunctionData({ abi, functionName, args } as any);
   const evmGas = await qore.estimateContractGas({ address, abi, functionName, args, account: acc.evm as Address } as any).catch((e) => {
@@ -113,11 +126,16 @@ export async function writeNative(role: Role, address: Address, abi: Abi, functi
   let gas = Math.max(1_200_000, Math.ceil(Number(evmGas) * 2.8) + 400_000);
   for (let attempt = 0; ; attempt++) {
     try {
-      const hash = await sendNative(role, [crossVmMsg(acc.cosmos, address, data)], "hybrid", gas, memo);
+      const hash = await sendNative(role, [crossVmMsg(acc.cosmos, address, data)], "hybrid", gas, memo, done);
       const t = await committed(hash);
       if (!executedOnEvm(t)) throw new Error(`${functionName}: cross-VM call not executed in ${hash}`);
       return { hash, gasUsed: BigInt(t.tx_response.gas_used), tx: t };
     } catch (e) {
+      const landed = done ? await done().catch(() => null) : null;
+      if (landed) {
+        const t = await committed(landed);
+        return { hash: landed, gasUsed: BigInt(t.tx_response.gas_used), tx: t };
+      }
       if (attempt < 2 && /out of gas/i.test(String((e as Error)?.message ?? e))) {
         gas = Math.ceil(gas * 1.6);
         continue;
