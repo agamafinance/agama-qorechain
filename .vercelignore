@@ -1,0 +1,11 @@
+# The app (web/) reads only deployments/ and abi/ from outside its folder.
+contracts
+keeper
+scripts
+docs
+.venv-mldsa
+.github
+**/node_modules
+**/.next
+web/e2e
+*.log

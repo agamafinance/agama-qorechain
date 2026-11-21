@@ -10,6 +10,8 @@ import { reviewDossiers } from "./compliance.js";
 import { publishTape } from "./dataroom.js";
 import { ensureWindow } from "./window.js";
 import { ensureGas } from "./gastank.js";
+import { ensureRelayer } from "./relayer.js";
+import { ensureRelayerWindow } from "./pqaccounts.js";
 
 const usd = (v: bigint) => `$${Number(formatUnits(v, 6)).toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
 
@@ -39,6 +41,8 @@ async function tick() {
   // Gas first: the treasury's authenticator tops the operator up within the chain's daily limit.
   await ensureGas().catch((e) => console.log(`  ::warning:: gas tank: ${(e as Error).message.split("\n")[0]}`));
   await ensureWindow();
+  // The app's relayer (web/lib/server/relay.ts) only holds a key: its gas and its EVM window are kept here.
+  await ensureRelayer().then(ensureRelayerWindow).catch((e) => console.log(`  ::warning:: relayer: ${(e as Error).message.split("\n")[0]}`));
   console.log("relay");
   await relayAll();
   // What the vault needs home is known before the book runs, so the book keeps it as cash instead of wiring it out.
