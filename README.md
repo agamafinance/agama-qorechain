@@ -8,6 +8,8 @@
   <a href="docs/battery/native-lane.md">Latest battery, with hashes</a>
 </p>
 
+<p align="center"><a href="https://build.qorechain.io/p/agama"><img src="https://build.qorechain.io/badge/agama.svg" alt="Built on QoreChain"></a></p>
+
 # Agama on QoreChain
 
 **A permissioned private-credit vault where every lender's identity and every loan file stay encrypted on chain, and
