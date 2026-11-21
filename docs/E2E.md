@@ -1,5 +1,10 @@
 # End to end
 
+Latest run, after every QoreChain write moved to hybrid-signed native transactions and every EVM window was
+closed: [battery/native-lane.md](battery/native-lane.md). The protocol e2e now ends with the post-quantum-only checks
+(no window; an ECDSA-only EVM transaction from the operator and the relayer refused; every transaction of the run
+hybrid-verified), and `keeper/src/pq-audit.ts` and `web/e2e/explorer.mjs` check the whole history and the explorer.
+
 ## Battery (`keeper/src/battery.ts`, 42 checks)
 
 Eight lenders at once (six eligible, two that compliance must refuse), every action a real hybrid-signed

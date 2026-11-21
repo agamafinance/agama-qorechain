@@ -64,15 +64,21 @@ if (process.env.TRACE) {
 // header still offers it, and wait until the account is there (the header shows the account instead).
 async function go(path) {
   await page.goto(`${BASE}${path}`);
-  const again = page.getByRole('button', { name: /Connect QoreX/ }).filter({ visible: true }).first();
-  if (await again.isVisible({ timeout: 8_000 }).catch(() => false)) await again.click();
-  await page.waitForFunction(() => !/Connect QoreX/.test(document.querySelector('header')?.innerText ?? ''), null, { timeout: 30_000 }).catch(() => {});
+  await ensureConnected();
+}
+async function ensureConnected() {
+  const connected = () => page.waitForFunction(() => !/Connect QoreX/.test(document.querySelector('header')?.innerText ?? ''), null, { timeout: 15_000 }).then(() => true).catch(() => false);
+  for (let i = 0; i < 3; i++) {
+    const again = page.getByRole('button', { name: /Connect QoreX/ }).filter({ visible: true }).first();
+    // The button shows before it acts (the app waits for QoreX to inject itself), and the app may reconnect by itself.
+    if (await again.isVisible({ timeout: 5_000 }).catch(() => false)) await again.click({ timeout: 10_000 }).catch(() => {});
+    if (await connected()) return;
+  }
 }
 
 await check('connect QoreX', async () => {
-  await page.goto(`${BASE}/access`);
-  // The page hydrates before the button acts (it waits for QoreX to inject itself): the visible one, given time.
-  await page.getByRole('button', { name: /Connect QoreX/ }).filter({ visible: true }).first().click({ timeout: 60_000 });
+  // Connects only if the app did not reconnect by itself (it does, when QoreX already granted this site).
+  await go('/access');
   await page.waitForFunction(() => document.body.innerText.includes('Your encryption key'), null, { timeout: 30_000 });
   const owner = await page.evaluate(async () => {
     const k = await window.qorex.native.getKey('qorechain-diana');
@@ -84,9 +90,7 @@ await check('connect QoreX', async () => {
     const seed = readFileSync(SEED_FILE, 'utf8').trim();
     await page.evaluate(([k, v]) => localStorage.setItem(k, v), [`agama-qore:seal:${twin.toLowerCase()}`, seed]);
     await page.reload();
-    // After a reload the wallet reconnects by itself most of the time, not always: connect again when it did not.
-    const again = page.getByRole('button', { name: /Connect QoreX/ }).first();
-    if (await again.isVisible({ timeout: 5_000 }).catch(() => false)) await again.click();
+    await ensureConnected();
     await page.waitForFunction(() => /Published and bound|Create my key|Publish my key/.test(document.body.innerText), null, { timeout: 60_000 });
   }
   return twin;
@@ -176,7 +180,8 @@ await check('data room: the next epoch includes the lender, who decrypts the loa
   // The tape opens by itself for a member whose key is in this browser; the button is only a fallback.
   await page.getByText(/ciphertext matches its on-chain commitment|Decrypt in this browser/).first().waitFor({ timeout: 300_000 });
   const btn = page.getByRole('button', { name: /Decrypt in this browser/ });
-  if (await btn.isVisible().catch(() => false)) await btn.click();
+  // It can open by itself between the check and the click: then there is nothing to click.
+  if (await btn.isVisible().catch(() => false)) await btn.click({ timeout: 5_000 }).catch(() => {});
   await waitText('ciphertext matches its on-chain commitment', 60_000);
   const rows = await page.locator('tbody tr').count();
   assert(rows === 12, `12 facilities, got ${rows}`);
