@@ -26,8 +26,9 @@ export const QOR_FAUCET = 'https://dashboard.qorechain.io/faucet';
 export const QOREX_INSTALL = 'https://docs.qorechain.io/qorex/browser-extension';
 
 export const qoreAddress = (a: string) => `${QORE_EXPLORER}/address/${a}`;
-/// Transactions open on Agama's own page (app/tx): the public explorer opens on mainnet, these are on testnet.
-export const qoreTx = (h: string) => `${BASE}/tx/${h}`;
+/// A native QoreChain hash opens straight on the explorer; an EVM hash goes through /api/explorer, which finds the
+/// native transaction that carries it (the explorer only knows those) and redirects there.
+export const qoreTx = (h: string) => (/^0x/.test(h) ? `${BASE}/api/explorer/${h}` : `${QORE_EXPLORER}/tx/${h.toUpperCase()}`);
 export const ethAddress = (a: string) => `${ETH_EXPLORER}/address/${a}`;
 export const ethTx = (h: string) => `${ETH_EXPLORER}/tx/${h}`;
 

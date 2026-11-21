@@ -47,8 +47,11 @@ await btn.click();
 let after = before;
 for (let i = 0; i < 60 && after === before; i++) { await page.waitForTimeout(1500); after = await bal(); }
 const lock = await page.evaluate(() => window.__lock);
+// The toast links straight to the QoreChain explorer, with the native hash it knows (not the EVM one).
+const link = await page.getByRole('link', { name: /View transaction/ }).first().getAttribute('href', { timeout: 30_000 }).catch(() => null);
+const direct = /^https:\/\/explore\.qore\.network\/tx\/[0-9A-F]{64}$/.test(link ?? '');
 const shown = await page.getByText(/wallet is locked/i).count();
 await browser.close();
-const ok = lock.unlockScreens === 1 && after > before && shown === 0;
-console.log(`${ok ? 'PASS' : 'FAIL'}  locked QoreX: unlock screen opened ${lock.unlockScreens}x, USDC ${Number(before) / 1e6} -> ${Number(after) / 1e6}, "locked" error shown ${shown}x`);
+const ok = lock.unlockScreens === 1 && after > before && shown === 0 && direct;
+console.log(`${ok ? 'PASS' : 'FAIL'}  locked QoreX: unlock screen opened ${lock.unlockScreens}x, USDC ${Number(before) / 1e6} -> ${Number(after) / 1e6}, "locked" error shown ${shown}x, toast link ${link}`);
 process.exit(ok ? 0 : 1);

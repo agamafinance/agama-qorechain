@@ -12,6 +12,7 @@ import { createWalletClient, http, parseAbi, type Address, type Hex } from 'viem
 import { privateKeyToAccount } from 'viem/accounts';
 import { diana, EVM_RPC, qore } from '../chains';
 import { QORECHAIN } from '../deployments';
+import { nativeHash } from './explorer';
 
 const factoryAbi = parseAbi([
   'function execute(address owner, (address target, bytes data)[] calls, string summary, uint256 deadline, bytes pqSignature)',
@@ -60,7 +61,8 @@ export async function submit(req: Req) {
   const receipt = await qore.waitForTransactionReceipt({ hash, timeout: 50_000 });
   if (receipt.status !== 'success') throw new Error(`reverted on chain in ${hash}`);
   console.log(`pq ${summary} for owner ${owner}: ${hash} gas ${receipt.gasUsed}`);
-  return { txHash: hash, gasUsed: String(receipt.gasUsed) };
+  // The explorer link in the lender's toast: the native QoreChain hash that carries this EVM transaction.
+  return { txHash: (await nativeHash(hash)) ?? hash, evmHash: hash, gasUsed: String(receipt.gasUsed) };
 }
 
 /** The reason a refusal shows the lender: the contract's, not viem's whole report. */
